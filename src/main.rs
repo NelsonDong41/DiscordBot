@@ -119,7 +119,7 @@ impl EventHandler for Bot {
                     .await;
                     match result {
                         Ok(puuid) => {
-                            format!("PUUID: {}", puuid)
+                            format!("{}", puuid)
                         }
                         Err(err) => {
                             format!("Err: {}", err)
