@@ -57,6 +57,14 @@ impl EventHandler for Bot {
                         "Region",
                     )
                     .required(false),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::Number,
+                        "game_count",
+                        "Number of games to check",
+                    )
+                    .required(false),
                 ),
         ];
         let commands = &self
@@ -93,7 +101,7 @@ impl EventHandler for Bot {
                     }
                 }
                 "league" => {
-                    let (player_name, tag, region) = {
+                    let (player_name, tag, region, game_count) = {
                         let mut iter = command.data.options.iter();
                         let player_name = iter
                             .find(|opt| opt.name == "player_name")
@@ -107,12 +115,17 @@ impl EventHandler for Bot {
                             .find(|opt| opt.name == "region")
                             .and_then(|opt| opt.value.as_str())
                             .unwrap_or("americas");
-                        (player_name, tag, region)
+                        let game_count = iter
+                            .find(|opt| opt.name == "game_count")
+                            .and_then(|opt| opt.value.as_i64())
+                            .unwrap_or(20);
+                        (player_name, tag, region, game_count)
                     };
                     let result = league::get_league_info(
                         player_name,
                         tag,
                         region,
+                        game_count,
                         &self.riot_api_key,
                         &self.client,
                     )

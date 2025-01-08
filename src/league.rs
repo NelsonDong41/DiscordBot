@@ -1,10 +1,10 @@
 use futures::future::join_all;
-use reqwest::{Client, Request};
+use reqwest::{Client, Error};
 use serde::Deserialize;
+use serde_json::Value;
 use std::fmt::Display;
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
 pub struct AccountDto {
     puuid: String,
 }
@@ -46,8 +46,22 @@ impl Display for OutputError {
     }
 }
 
+impl From<Error> for OutputError {
+    fn from(err: Error) -> Self {
+        OutputError {
+            status: err
+                .status()
+                .map_or("Unknown".to_string(), |s| s.to_string()),
+            message: "Request error".to_string(),
+            player_name: "".to_string(), // You might want to pass these values as parameters
+            tag: "".to_string(),         // You might want to pass these values as parameters
+            region: "".to_string(),      // You might want to pass these values as parameters
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "camelCase")]
 pub struct AccountInfoContext {
     puuid: String,
     player_name: String,
@@ -56,7 +70,7 @@ pub struct AccountInfoContext {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "camelCase")]
 pub struct ParticipantDto {
     gold_earned: u32,
     individual_position: String,
@@ -70,13 +84,11 @@ pub struct ParticipantDto {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
 pub struct InfoDto {
     participants: Vec<ParticipantDto>,
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
 pub struct MatchDto {
     info: InfoDto,
 }
@@ -87,10 +99,12 @@ pub async fn get_league_info(
     player_name: &str,
     tag: &str,
     region: &str,
-    game_count: u32,
+    game_count: i64,
     api_key: &str,
     client: &Client,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    println!("enter1");
+
     let account_url = format!(
         "https://{}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{}/{}",
         region, player_name, tag
@@ -106,19 +120,30 @@ pub async fn get_league_info(
     // // vector of locations
     let response = client.execute(request).await?;
     let response_status = response.status();
+
+    println!("enter2");
+
     match response_status {
         reqwest::StatusCode::OK => {
             let puuid = response.json::<AccountDto>().await?.puuid;
+
+            println!("{}", puuid);
+
             let account_info_context = AccountInfoContext {
-                puuid: puuid,
+                puuid,
                 player_name: player_name.to_string(),
                 tag: tag.to_string(),
                 region: region.to_string(),
             };
+            println!("enter5");
+
             return get_matches_info(game_count, api_key, client, account_info_context).await;
         }
         _ => {
+            println!("enter6");
             let resp = response.json::<ErrorDto>().await?;
+            println!("enter7");
+
             return Err(Box::new(OutputError {
                 status: resp.status_code,
                 message: resp.message,
@@ -131,24 +156,28 @@ pub async fn get_league_info(
 }
 
 async fn get_matches_info(
-    game_count: u32,
+    game_count: i64,
     api_key: &str,
     client: &Client,
     account_info_context: AccountInfoContext,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    println!("here1");
+
     let AccountInfoContext {
         region,
         puuid,
         player_name,
         tag,
     } = account_info_context;
-    let summoner_url = format!(
+    let matches_from_puuid_url = format!(
         "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?count{}",
         region, puuid, game_count
     );
 
+    println!("here2");
+
     let request = client
-        .get(summoner_url)
+        .get(matches_from_puuid_url)
         .header("X-Riot-Token", api_key)
         .build()
         .unwrap();
@@ -156,12 +185,19 @@ async fn get_matches_info(
     let response = client.execute(request).await?;
     let response_status = response.status();
 
+    println!("here3");
+
     match response_status {
         reqwest::StatusCode::OK => {
             let match_ids = response.json::<Vec<String>>().await?;
-            let match_info_requests: Result<MatchDto, OutputError> = match_ids
-                .iter()
-                .map(|match_id| async {
+            println!("{}", match_ids.join("\n"));
+
+            let match_info_requests = match_ids.iter().map(|match_id| {
+                let client = client.clone();
+                let region = region.clone();
+                let player_name = player_name.clone();
+                let tag = tag.clone();
+                async move {
                     let match_request_url = format!(
                         "https://{}.api.riotgames.com/lol/match/v5/matches/{}",
                         region, match_id
@@ -175,31 +211,53 @@ async fn get_matches_info(
 
                     match response {
                         Ok(resp) => {
-                            let match_info = resp.json::<MatchDto>().await;
+                            let resp_body = resp.text().await.expect("");
+                            let match_info: MatchDto = serde_json::from_str(&resp_body).expect("");
+                            let match_info_new: Value = serde_json::from_str(&resp_body).expect("");
+                            println!("{}", serde_json::to_string_pretty(&match_info_new).unwrap());
+
                             Ok(match_info)
                         }
                         Err(err) => {
-                            let error_json = err.json::<ErrorDto>().await;
-
+                            println!("request to find matches failed");
                             Err(Box::new(OutputError {
-                                status: response_status.to_string(),
-                                message: er,
+                                status: err.status().unwrap().to_string(),
+                                message: "Request to find matches failed".to_string(),
                                 player_name: player_name.to_string(),
                                 tag: tag.to_string(),
                                 region: region.to_string(),
                             }))
                         }
                     }
-                })
-                .collect();
+                }
+            });
 
-            return Ok("string");
+            let match_info_results: Vec<Result<MatchDto, Box<OutputError>>> =
+                join_all(match_info_requests).await;
+
+            let mut total_string = String::new();
+            for result in match_info_results {
+                match result {
+                    Ok(match_info) => {
+                        let match_string = get_match_info(Ok(match_info))
+                            .unwrap_or_else(|_| "Error getting match info".to_string());
+                        total_string.push_str(&match_string);
+                        total_string.push('\n'); // Add a newline for better readability
+                    }
+                    Err(_) => {
+                        total_string.push_str("Error getting match info");
+                        total_string.push('\n'); // Add a newline for better readability
+                    }
+                }
+            }
+            println!("{}", total_string);
+            Ok("asdfafdsf".to_string())
         }
         _ => {
             let resp = response.json::<ErrorDto>().await?;
             return Err(Box::new(OutputError {
                 status: resp.status_code,
-                message: resp.message,
+                message: "Unable to find matches from puuid".to_string(),
                 player_name: player_name.to_string(),
                 tag: tag.to_string(),
                 region: region.to_string(),
@@ -208,16 +266,9 @@ async fn get_matches_info(
     }
 }
 
-async fn get_match_info(
-    client: &Client,
-    match_request: Request,
+fn get_match_info(
+    match_resp: Result<MatchDto, Box<OutputError>>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let match_resp = client
-        .execute(match_request)
-        .await?
-        .json::<MatchDto>()
-        .await;
-
     match match_resp {
         Ok(resp) => {
             let participants = resp.info.participants;
