@@ -1,6 +1,6 @@
 use futures::future::join_all;
 use reqwest::{Client, Error};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
 
@@ -40,23 +40,9 @@ impl Display for OutputError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "({}) {}#{}: ({}) {}",
-            self.region, self.player_name, self.tag, self.status, self.region
+            "{} \n ({}) {}#{}: ({})",
+            self.message, self.status, self.player_name, self.tag, self.region
         )
-    }
-}
-
-impl From<Error> for OutputError {
-    fn from(err: Error) -> Self {
-        OutputError {
-            status: err
-                .status()
-                .map_or("Unknown".to_string(), |s| s.to_string()),
-            message: "Request error".to_string(),
-            player_name: "".to_string(), // You might want to pass these values as parameters
-            tag: "".to_string(),         // You might want to pass these values as parameters
-            region: "".to_string(),      // You might want to pass these values as parameters
-        }
     }
 }
 
@@ -69,28 +55,56 @@ pub struct AccountInfoContext {
     region: String,
 }
 
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ParticipantDto {
-    gold_earned: u32,
-    individual_position: String,
-    kills: u32,
-    deaths: u32,
-    assists: u32,
-    participant_id: u32,
-    summoner_name: String,
-    total_damage_dealt: u32,
-    win: bool,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct InfoDto {
-    participants: Vec<ParticipantDto>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct MatchDto {
+#[derive(Debug, Serialize, Deserialize)]
+struct MatchDto {
+    metadata: MetadataDto,
     info: InfoDto,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MetadataDto {
+    data_version: String,
+    match_id: String,
+    participants: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InfoDto {
+    game_creation: i64,
+    game_duration: i64,
+    game_end_timestamp: i64,
+    game_id: i64,
+    game_mode: String,
+    game_name: String,
+    game_start_timestamp: i64,
+    game_type: String,
+    game_version: String,
+    map_id: i32,
+    participants: Vec<ParticipantDto>,
+    platform_id: String,
+    queue_id: i32,
+    teams: Vec<TeamDto>,
+    tournament_code: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ParticipantDto {
+    assists: i32,
+    champion_id: i32,
+    deaths: i32,
+    kills: i32,
+    participant_id: i32,
+    puuid: String,
+    summoner_id: String,
+    summoner_name: String,
+    // Add other fields as needed
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TeamDto {
+    team_id: i32,
+    win: bool,
+    // Add other fields as needed
 }
 
 impl std::error::Error for OutputError {}
@@ -103,8 +117,6 @@ pub async fn get_league_info(
     api_key: &str,
     client: &Client,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    println!("enter1");
-
     let account_url = format!(
         "https://{}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{}/{}",
         region, player_name, tag
@@ -121,13 +133,9 @@ pub async fn get_league_info(
     let response = client.execute(request).await?;
     let response_status = response.status();
 
-    println!("enter2");
-
     match response_status {
         reqwest::StatusCode::OK => {
             let puuid = response.json::<AccountDto>().await?.puuid;
-
-            println!("{}", puuid);
 
             let account_info_context = AccountInfoContext {
                 puuid,
@@ -135,18 +143,13 @@ pub async fn get_league_info(
                 tag: tag.to_string(),
                 region: region.to_string(),
             };
-            println!("enter5");
 
             return get_matches_info(game_count, api_key, client, account_info_context).await;
         }
         _ => {
-            println!("enter6");
-            let resp = response.json::<ErrorDto>().await?;
-            println!("enter7");
-
             return Err(Box::new(OutputError {
-                status: resp.status_code,
-                message: resp.message,
+                status: response_status.to_string(),
+                message: "Request to find account failed".to_string(),
                 player_name: player_name.to_string(),
                 tag: tag.to_string(),
                 region: region.to_string(),
@@ -161,8 +164,6 @@ async fn get_matches_info(
     client: &Client,
     account_info_context: AccountInfoContext,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    println!("here1");
-
     let AccountInfoContext {
         region,
         puuid,
@@ -174,8 +175,6 @@ async fn get_matches_info(
         region, puuid, game_count
     );
 
-    println!("here2");
-
     let request = client
         .get(matches_from_puuid_url)
         .header("X-Riot-Token", api_key)
@@ -185,12 +184,9 @@ async fn get_matches_info(
     let response = client.execute(request).await?;
     let response_status = response.status();
 
-    println!("here3");
-
     match response_status {
         reqwest::StatusCode::OK => {
             let match_ids = response.json::<Vec<String>>().await?;
-            println!("{}", match_ids.join("\n"));
 
             let match_info_requests = match_ids.iter().map(|match_id| {
                 let client = client.clone();
@@ -211,23 +207,31 @@ async fn get_matches_info(
 
                     match response {
                         Ok(resp) => {
-                            let resp_body = resp.text().await.expect("");
-                            let match_info: MatchDto = serde_json::from_str(&resp_body).expect("");
-                            let match_info_new: Value = serde_json::from_str(&resp_body).expect("");
-                            println!("{}", serde_json::to_string_pretty(&match_info_new).unwrap());
+                            let match_info_result: Result<MatchDto, Error> = resp.json().await;
 
-                            Ok(match_info)
+                            match match_info_result {
+                                Ok(match_info) => Ok(match_info),
+                                Err(_) => {
+                                    println!("tag");
+
+                                    Err(Box::new(OutputError {
+                                        status: response_status.to_string(),
+                                        message: "Error parsing json response to MatchDto"
+                                            .to_string(),
+                                        player_name: player_name.to_string(),
+                                        tag: tag.to_string(),
+                                        region: region.to_string(),
+                                    }))
+                                }
+                            }
                         }
-                        Err(err) => {
-                            println!("request to find matches failed");
-                            Err(Box::new(OutputError {
-                                status: err.status().unwrap().to_string(),
-                                message: "Request to find matches failed".to_string(),
-                                player_name: player_name.to_string(),
-                                tag: tag.to_string(),
-                                region: region.to_string(),
-                            }))
-                        }
+                        Err(err) => Err(Box::new(OutputError {
+                            status: err.status().unwrap().to_string(),
+                            message: "Request to find matches failed".to_string(),
+                            player_name: player_name.to_string(),
+                            tag: tag.to_string(),
+                            region: region.to_string(),
+                        })),
                     }
                 }
             });
@@ -236,22 +240,26 @@ async fn get_matches_info(
                 join_all(match_info_requests).await;
 
             let mut total_string = String::new();
+            let mut count = 1;
+            println!("before1");
+
             for result in match_info_results {
                 match result {
                     Ok(match_info) => {
-                        let match_string = get_match_info(Ok(match_info))
-                            .unwrap_or_else(|_| "Error getting match info".to_string());
+                        println!("before");
+                        let match_string = get_match_info(match_info, count, puuid.clone())
+                            .unwrap_or_else(|err| err.to_string());
                         total_string.push_str(&match_string);
                         total_string.push('\n'); // Add a newline for better readability
                     }
-                    Err(_) => {
-                        total_string.push_str("Error getting match info");
+                    Err(err) => {
+                        total_string.push_str(&err.message);
                         total_string.push('\n'); // Add a newline for better readability
                     }
                 }
+                count += 1;
             }
-            println!("{}", total_string);
-            Ok("asdfafdsf".to_string())
+            Ok(total_string.to_string())
         }
         _ => {
             let resp = response.json::<ErrorDto>().await?;
@@ -267,26 +275,42 @@ async fn get_matches_info(
 }
 
 fn get_match_info(
-    match_resp: Result<MatchDto, Box<OutputError>>,
+    match_resp: MatchDto,
+    game_count: i64,
+    player_puuid: String,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    match match_resp {
-        Ok(resp) => {
-            let participants = resp.info.participants;
-            let mut output = String::new();
-            for participant in participants {
-                output.push_str(&format!(
-                    "Player: {}, Position: {}, Kills: {}, Deaths: {}, Assists: {}, Damage: {}, Win: {}\n",
-                    participant.summoner_name,
-                    participant.individual_position,
-                    participant.kills,
-                    participant.deaths,
-                    participant.assists,
-                    participant.total_damage_dealt,
-                    participant.win
-                ));
-            }
-            Ok(output)
-        }
-        Err(err) => Err(Box::new(err)),
-    }
+    println!("hello");
+
+    let info = match_resp.info;
+    let InfoDto {
+        // participants,
+        game_duration,
+        ..
+    } = info;
+    let mut output = String::new();
+    // let participant_iter = participants.iter();
+
+    // println!("hello0");
+
+    // let me = participant_iter
+    //     .clone()
+    //     .find(|p| p.puuid == player_puuid)
+    //     .unwrap();
+
+    // println!("hello1");
+
+    // let opponent = participant_iter
+    //     .clone()
+    //     .find(|p| p.individual_position != me.individual_position)
+    //     .unwrap();
+
+    // println!("hello2");
+
+    // let win = if me.win { "won" } else { "lost" };
+    // output.push_str(&format!(
+    //     "Game {} {}: {} (you) vs {} ({})\n",
+    //     game_count, win, me.summoner_name, opponent.summoner_name, game_duration
+    // ));
+
+    Ok(game_duration.to_string())
 }
