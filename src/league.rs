@@ -24,7 +24,6 @@ pub struct SummonerDto {
 #[serde(rename_all = "PascalCase")]
 pub struct ErrorDto {
     status_code: String,
-    message: String,
 }
 
 #[derive(Debug)]
@@ -57,51 +56,77 @@ pub struct AccountInfoContext {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MatchDto {
-    metadata: MetadataDto,
+    #[serde(flatten)]
     info: InfoDto,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MetadataDto {
+    #[serde(rename = "dataVersion")]
     data_version: String,
+    #[serde(rename = "matchId")]
     match_id: String,
     participants: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct InfoDto {
+    #[serde(rename = "gameCreation")]
     game_creation: i64,
+    #[serde(rename = "gameDuration")]
     game_duration: i64,
+    #[serde(rename = "gameEndTimestamp")]
     game_end_timestamp: i64,
+    #[serde(rename = "gameId")]
     game_id: i64,
+    #[serde(rename = "gameMode")]
     game_mode: String,
+    #[serde(rename = "gameName")]
     game_name: String,
+    #[serde(rename = "gameStartTimestamp")]
     game_start_timestamp: i64,
+    #[serde(rename = "gameType")]
     game_type: String,
+    #[serde(rename = "gameVersion")]
     game_version: String,
+    #[serde(rename = "mapId")]
     map_id: i32,
     participants: Vec<ParticipantDto>,
+    #[serde(rename = "platformId")]
     platform_id: String,
+    #[serde(rename = "queueId")]
     queue_id: i32,
     teams: Vec<TeamDto>,
+    #[serde(rename = "tournamentCode")]
     tournament_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ParticipantDto {
     assists: i32,
-    champion_id: i32,
+    #[serde(rename = "championName")]
+    champion_name: String,
     deaths: i32,
     kills: i32,
+    #[serde(rename = "participantId")]
     participant_id: i32,
     puuid: String,
+    #[serde(rename = "summonerId")]
     summoner_id: String,
+    #[serde(rename = "summonerName")]
     summoner_name: String,
-    // Add other fields as needed
+    #[serde(rename = "teamPosition")]
+    team_position: String,
+    win: bool,
+    #[serde(rename = "riotIdGameName")]
+    riot_id_game_name: String,
+    #[serde(rename = "teamId")]
+    team_id: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TeamDto {
+    #[serde(rename = "teamId")]
     team_id: i32,
     win: bool,
     // Add other fields as needed
@@ -188,77 +213,39 @@ async fn get_matches_info(
         reqwest::StatusCode::OK => {
             let match_ids = response.json::<Vec<String>>().await?;
 
-            let match_info_requests = match_ids.iter().map(|match_id| {
-                let client = client.clone();
-                let region = region.clone();
-                let player_name = player_name.clone();
-                let tag = tag.clone();
-                async move {
-                    let match_request_url = format!(
-                        "https://{}.api.riotgames.com/lol/match/v5/matches/{}",
-                        region, match_id
-                    );
-
-                    let response = client
-                        .get(match_request_url)
-                        .header("X-Riot-Token", api_key)
-                        .send()
-                        .await;
-
-                    match response {
-                        Ok(resp) => {
-                            let match_info_result: Result<MatchDto, Error> = resp.json().await;
-
-                            match match_info_result {
-                                Ok(match_info) => Ok(match_info),
-                                Err(_) => {
-                                    println!("tag");
-
-                                    Err(Box::new(OutputError {
-                                        status: response_status.to_string(),
-                                        message: "Error parsing json response to MatchDto"
-                                            .to_string(),
-                                        player_name: player_name.to_string(),
-                                        tag: tag.to_string(),
-                                        region: region.to_string(),
-                                    }))
-                                }
-                            }
-                        }
-                        Err(err) => Err(Box::new(OutputError {
-                            status: err.status().unwrap().to_string(),
-                            message: "Request to find matches failed".to_string(),
-                            player_name: player_name.to_string(),
-                            tag: tag.to_string(),
-                            region: region.to_string(),
-                        })),
-                    }
-                }
+            let match_futures = match_ids.into_iter().map(|match_id| {
+                let match_url = format!(
+                    "https://{}.api.riotgames.com/lol/match/v5/matches/{}",
+                    region, match_id
+                );
+                client
+                    .get(&match_url)
+                    .header("X-Riot-Token", api_key)
+                    .send()
             });
 
-            let match_info_results: Vec<Result<MatchDto, Box<OutputError>>> =
-                join_all(match_info_requests).await;
+            let match_responses = join_all(match_futures).await;
+
+            let mut matches = Vec::new();
+            let mut count = 1;
+            for response in match_responses {
+                if let Ok(resp) = response {
+                    let match_data: serde_json::Value = resp.json().await?;
+                    matches.push(
+                        get_match_info(match_data, count, puuid.clone())
+                            .unwrap_or_else(|err| err.to_string()),
+                    );
+                    count += 1
+                }
+            }
 
             let mut total_string = String::new();
-            let mut count = 1;
-            println!("before1");
-
-            for result in match_info_results {
-                match result {
-                    Ok(match_info) => {
-                        println!("before");
-                        let match_string = get_match_info(match_info, count, puuid.clone())
-                            .unwrap_or_else(|err| err.to_string());
-                        total_string.push_str(&match_string);
-                        total_string.push('\n'); // Add a newline for better readability
-                    }
-                    Err(err) => {
-                        total_string.push_str(&err.message);
-                        total_string.push('\n'); // Add a newline for better readability
-                    }
-                }
-                count += 1;
+            for match_info in matches {
+                total_string.push_str(&match_info);
+                total_string.push('\n');
             }
+
+            println!("hello");
             Ok(total_string.to_string())
         }
         _ => {
@@ -275,42 +262,33 @@ async fn get_matches_info(
 }
 
 fn get_match_info(
-    match_resp: MatchDto,
+    match_resp: Value,
     game_count: i64,
     player_puuid: String,
 ) -> Result<String, Box<dyn std::error::Error>> {
     println!("hello");
 
-    let info = match_resp.info;
-    let InfoDto {
-        // participants,
-        game_duration,
-        ..
-    } = info;
+    let info: InfoDto = serde_json::from_value(match_resp["info"].clone())?;
+    //
+    let InfoDto { participants, .. } = info;
     let mut output = String::new();
-    // let participant_iter = participants.iter();
+    let participant_iter = participants.iter();
 
-    // println!("hello0");
+    let me = participant_iter
+        .clone()
+        .find(|p| p.puuid == player_puuid)
+        .unwrap();
 
-    // let me = participant_iter
-    //     .clone()
-    //     .find(|p| p.puuid == player_puuid)
-    //     .unwrap();
+    let opponent = participant_iter
+        .clone()
+        .find(|p| p.team_id != me.team_id && p.team_position == me.team_position)
+        .unwrap();
 
-    // println!("hello1");
+    let win = if me.win { "won" } else { "lost" };
+    output.push_str(&format!(
+        "Game {} {}: {} vs {} ({})",
+        game_count, win, me.champion_name, opponent.champion_name, opponent.riot_id_game_name
+    ));
 
-    // let opponent = participant_iter
-    //     .clone()
-    //     .find(|p| p.individual_position != me.individual_position)
-    //     .unwrap();
-
-    // println!("hello2");
-
-    // let win = if me.win { "won" } else { "lost" };
-    // output.push_str(&format!(
-    //     "Game {} {}: {} (you) vs {} ({})\n",
-    //     game_count, win, me.summoner_name, opponent.summoner_name, game_duration
-    // ));
-
-    Ok(game_duration.to_string())
+    Ok(output)
 }
