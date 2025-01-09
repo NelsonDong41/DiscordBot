@@ -20,53 +20,42 @@ impl EventHandler for Bot {
 
         // We are creating a vector with commands
         // and registering them on the server with the guild ID we have set.
-        let commands = vec![
-            CreateCommand::new("hello").description("Say hello"),
-            CreateCommand::new("weather")
-                .description("Display the weather")
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "place",
-                        "City to lookup forecast",
-                    )
-                    .required(true),
-                ),
-            CreateCommand::new("league")
-                .description("League info")
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "player_name",
-                        "City to lookup forecast",
-                    )
-                    .required(true),
+        let commands = vec![CreateCommand::new("league")
+            .description("League info")
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "player_name",
+                    "Player Name",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "tag",
-                        "playerTag",
-                    )
-                    .required(true),
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "tag",
+                    "playerTag",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "region",
-                        "Region",
-                    )
-                    .required(false),
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "region",
+                    "Region",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::Number,
-                        "game_count",
-                        "Number of games to check",
-                    )
-                    .required(false),
-                ),
-        ];
+                .required(false),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "game_count",
+                    "Number of games to check",
+                )
+                .min_int_value(0)
+                .max_int_value(40)
+                .required(false),
+            )];
         let commands = &self
             .discord_guild_id
             .set_commands(&ctx.http, commands)
@@ -79,27 +68,6 @@ impl EventHandler for Bot {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
             let response_content = match command.data.name.as_str() {
-                "hello" => "hello".to_owned(),
-                "weather" => {
-                    let argument = command
-                        .data
-                        .options
-                        .iter()
-                        .find(|opt| opt.name == "place")
-                        .cloned();
-                    let value = argument.unwrap().value;
-                    let place = value.as_str().unwrap();
-                    let result =
-                        weather::get_forecast(place, &self.weather_api_key, &self.client).await;
-                    match result {
-                        Ok((location, forecast)) => {
-                            format!("Forecast: {} in {}", forecast.headline.overview, location)
-                        }
-                        Err(err) => {
-                            format!("Err: {}", err)
-                        }
-                    }
-                }
                 "league" => {
                     let (player_name, tag, region, game_count) = {
                         let mut iter = command.data.options.iter();
@@ -117,10 +85,17 @@ impl EventHandler for Bot {
                             .unwrap_or("americas");
                         let game_count = iter
                             .find(|opt| opt.name == "game_count")
-                            .and_then(|opt| opt.value.as_i64())
-                            .unwrap_or(20);
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap_or({
+                                println!("game_count not found, defaulting to 20");
+                                "20"
+                            });
                         (player_name, tag, region, game_count)
                     };
+                    println!(
+                        "player_name: {}, tag: {}, region: {}, game_count: {}",
+                        player_name, tag, region, game_count
+                    );
                     let result = league::get_league_info(
                         player_name,
                         tag,

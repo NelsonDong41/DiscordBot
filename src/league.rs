@@ -1,23 +1,14 @@
 use futures::future::join_all;
-use reqwest::{Client, Error};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
+use std::time::Duration;
+use tokio::time::sleep;
 
 #[derive(Deserialize, Debug)]
 pub struct AccountDto {
     puuid: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-pub struct SummonerDto {
-    account_id: String,
-    profile_icon_id: u32,
-    revision_date: u64,
-    id: String,
-    puuid: String,
-    summoner_level: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -71,34 +62,7 @@ struct MetadataDto {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct InfoDto {
-    #[serde(rename = "gameCreation")]
-    game_creation: i64,
-    #[serde(rename = "gameDuration")]
-    game_duration: i64,
-    #[serde(rename = "gameEndTimestamp")]
-    game_end_timestamp: i64,
-    #[serde(rename = "gameId")]
-    game_id: i64,
-    #[serde(rename = "gameMode")]
-    game_mode: String,
-    #[serde(rename = "gameName")]
-    game_name: String,
-    #[serde(rename = "gameStartTimestamp")]
-    game_start_timestamp: i64,
-    #[serde(rename = "gameType")]
-    game_type: String,
-    #[serde(rename = "gameVersion")]
-    game_version: String,
-    #[serde(rename = "mapId")]
-    map_id: i32,
     participants: Vec<ParticipantDto>,
-    #[serde(rename = "platformId")]
-    platform_id: String,
-    #[serde(rename = "queueId")]
-    queue_id: i32,
-    teams: Vec<TeamDto>,
-    #[serde(rename = "tournamentCode")]
-    tournament_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,7 +93,7 @@ struct TeamDto {
     #[serde(rename = "teamId")]
     team_id: i32,
     win: bool,
-    // Add other fields as needed
+    // Add other fields as neede
 }
 
 impl std::error::Error for OutputError {}
@@ -138,7 +102,7 @@ pub async fn get_league_info(
     player_name: &str,
     tag: &str,
     region: &str,
-    game_count: i64,
+    game_count: &str,
     api_key: &str,
     client: &Client,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -184,7 +148,7 @@ pub async fn get_league_info(
 }
 
 async fn get_matches_info(
-    game_count: i64,
+    game_count: &str,
     api_key: &str,
     client: &Client,
     account_info_context: AccountInfoContext,
@@ -195,8 +159,10 @@ async fn get_matches_info(
         player_name,
         tag,
     } = account_info_context;
+    let region_clone = region.clone();
+
     let matches_from_puuid_url = format!(
-        "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?count{}",
+        "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?count={}",
         region, puuid, game_count
     );
 
@@ -213,15 +179,44 @@ async fn get_matches_info(
         reqwest::StatusCode::OK => {
             let match_ids = response.json::<Vec<String>>().await?;
 
-            let match_futures = match_ids.into_iter().map(|match_id| {
-                let match_url = format!(
+            let match_req_urls = match_ids.into_iter().map(|match_id| {
+                let match_id_clone = match_id.clone();
+                return format!(
                     "https://{}.api.riotgames.com/lol/match/v5/matches/{}",
-                    region, match_id
+                    region_clone, match_id_clone
                 );
-                client
-                    .get(&match_url)
-                    .header("X-Riot-Token", api_key)
-                    .send()
+            });
+
+            let match_futures = match_req_urls.map(|url| {
+                let client_clone = client.clone();
+                let api_key_clone = api_key.to_string();
+                async move {
+                    let mut retries = 0;
+                    let mut delay = Duration::from_millis(500); // Initial delay of 1 second
+                    let max_retries = 3;
+
+                    let request = client_clone
+                        .get(url.clone())
+                        .header("X-Riot-Token", api_key_clone.clone())
+                        .build()
+                        .unwrap();
+
+                    let mut result = client_clone.execute(request.try_clone().unwrap()).await;
+
+                    result = loop {
+                        let status = result.as_ref().unwrap().status();
+
+                        if (result.is_ok() && status.is_success()) || retries >= max_retries {
+                            break result;
+                        }
+                        sleep(delay).await;
+                        retries += 1;
+                        delay *= 2;
+
+                        result = client_clone.execute(request.try_clone().unwrap()).await;
+                    };
+                    result
+                }
             });
 
             let match_responses = join_all(match_futures).await;
@@ -229,24 +224,31 @@ async fn get_matches_info(
             let mut matches = Vec::new();
             let mut count = 1;
             for response in match_responses {
-                if let Ok(resp) = response {
-                    let match_data: serde_json::Value = resp.json().await?;
-                    matches.push(
-                        get_match_info(match_data, count, puuid.clone())
-                            .unwrap_or_else(|err| err.to_string()),
-                    );
-                    count += 1
+                match response {
+                    Ok(resp) => {
+                        let match_data: serde_json::Value = resp.json().await?;
+                        matches.push(get_match_info(match_data, count, puuid.clone()).unwrap());
+                        count += 1;
+                    }
+                    Err(_) => {}
                 }
             }
 
+            let matches_len = matches.len();
             let mut total_string = String::new();
-            for match_info in matches {
+            let mut win_count = 0;
+            for (match_info, win) in matches {
                 total_string.push_str(&match_info);
                 total_string.push('\n');
+                win_count += if win { 1 } else { 0 };
             }
 
-            println!("hello");
-            Ok(total_string.to_string())
+            Ok(format!(
+                "Winrate: {}/{}\n{}",
+                win_count,
+                matches_len,
+                total_string.to_string()
+            ))
         }
         _ => {
             let resp = response.json::<ErrorDto>().await?;
@@ -263,16 +265,21 @@ async fn get_matches_info(
 
 fn get_match_info(
     match_resp: Value,
-    game_count: i64,
+    game_count: i32,
     player_puuid: String,
-) -> Result<String, Box<dyn std::error::Error>> {
-    println!("hello");
-
-    let info: InfoDto = serde_json::from_value(match_resp["info"].clone())?;
-    //
-    let InfoDto { participants, .. } = info;
+) -> Result<(String, bool), Box<dyn std::error::Error>> {
+    let info: Value = match_resp["info"].clone();
+    let participants: Vec<ParticipantDto> =
+        match serde_json::from_value(info["participants"].clone()) {
+            Ok(participants) => participants,
+            Err(_) => Vec::new(),
+        };
     let mut output = String::new();
     let participant_iter = participants.iter();
+
+    if participant_iter.len() == 0 {
+        return Ok(("Unable to grab participant data".to_string(), false));
+    }
 
     let me = participant_iter
         .clone()
@@ -290,5 +297,5 @@ fn get_match_info(
         game_count, win, me.champion_name, opponent.champion_name, opponent.riot_id_game_name
     ));
 
-    Ok(output)
+    Ok((output, me.win))
 }
