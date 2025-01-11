@@ -48,7 +48,7 @@ pub async fn request_for_puuid(
 }
 
 pub async fn request_matches_from_puuid(
-    game_count: &str,
+    game_count: i64,
     api_key: &str,
     account_info_context: AccountInfoContext,
     client: &Client,

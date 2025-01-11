@@ -48,7 +48,7 @@ impl EventHandler for Bot {
             )
             .add_option(
                 CreateCommandOption::new(
-                    serenity::all::CommandOptionType::String,
+                    serenity::all::CommandOptionType::Integer,
                     "game_count",
                     "Number of games to check",
                 )
@@ -71,25 +71,38 @@ impl EventHandler for Bot {
                 match command.data.name.as_str() {
                     "matches" => {
                         let (player_name, tag, region, game_count) = {
-                            let mut iter = command.data.options.iter();
+                            let iter = command.data.options.iter();
                             let player_name = iter
+                                .clone()
                                 .find(|opt| opt.name == "player_name")
                                 .and_then(|opt| opt.value.as_str())
                                 .unwrap();
                             let tag = iter
+                                .clone()
                                 .find(|opt| opt.name == "tag")
                                 .and_then(|opt| opt.value.as_str())
                                 .unwrap();
                             let region = iter
+                                .clone()
                                 .find(|opt| opt.name == "region")
                                 .and_then(|opt| opt.value.as_str())
                                 .unwrap_or("americas");
+
+                            println!(
+                                "{:?}, {:?}",
+                                iter.clone().map(|opt| opt.name.clone()).collect::<Vec<_>>(),
+                                iter.clone()
+                                    .map(|opt| opt.value.clone())
+                                    .collect::<Vec<_>>()
+                            );
                             let game_count = iter
+                                .clone()
                                 .find(|opt| opt.name == "game_count")
                                 .and_then(|opt| opt.value.as_str())
-                                .unwrap_or({
+                                .and_then(|val| val.parse::<i64>().ok())
+                                .unwrap_or_else(|| {
                                     println!("game_count not found, defaulting to 20");
-                                    "20"
+                                    20
                                 });
                             (player_name, tag, region, game_count)
                         };
@@ -110,10 +123,10 @@ impl EventHandler for Bot {
                                 Ok(DiscordOutput::new(
                                     Colour::RED,
                                     "".to_string(),
-                                    vec![("name".to_string(), "value".to_string(), true)],
-                                    CreateEmbedFooter::new("text"),
-                                    format!("{}'s Winrate", player_name),
-                                    format!("{}", err),
+                                    vec![],
+                                    CreateEmbedFooter::new(err.to_string()),
+                                    format!("Request for {}'s matches FAILED", player_name),
+                                    "".to_string(),
                                 ))
                             }
                         }

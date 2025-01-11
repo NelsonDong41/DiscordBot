@@ -12,7 +12,7 @@ pub async fn handle_matches_command(
     player_name: &str,
     tag: &str,
     region: &str,
-    game_count: &str,
+    game_count: i64,
     api_key: &str,
     client: &Client,
 ) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
@@ -33,7 +33,7 @@ pub async fn handle_matches_command(
 }
 
 async fn get_matches_info(
-    game_count: &str,
+    game_count: i64,
     api_key: &str,
     account_info_context: AccountInfoContext,
     client: &Client,
@@ -86,14 +86,8 @@ async fn get_matches_info(
         .clone()
         .fold(0, |acc, (_, win)| acc + win as i32);
 
-    let color = if win_count as f32 / matches_len as f32 > 0.5 {
-        Color::DARK_GREEN
-    } else {
-        Color::RED
-    };
-
     let discord_output = DiscordOutput::new(
-        color,
+        Color::DARK_GREEN,
         format!(
             "Winrate: {}% ({}/{})",
             (win_count as f32 / matches_len as f32) * 100.0,
