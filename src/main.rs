@@ -1,13 +1,13 @@
 use anyhow::Context as _;
 use serenity::all::*;
+use shared::types::DiscordOutput;
 use shuttle_runtime::SecretStore;
 use tracing::info;
 
-mod league;
-mod weather;
+mod matches;
+pub mod shared;
 
 struct Bot {
-    weather_api_key: String,
     client: reqwest::Client,
     discord_guild_id: GuildId,
     riot_api_key: String,
@@ -20,8 +20,8 @@ impl EventHandler for Bot {
 
         // We are creating a vector with commands
         // and registering them on the server with the guild ID we have set.
-        let commands = vec![CreateCommand::new("league")
-            .description("League info")
+        let commands = vec![CreateCommand::new("matches")
+            .description("Get match info for player")
             .add_option(
                 CreateCommandOption::new(
                     serenity::all::CommandOptionType::String,
@@ -67,62 +67,79 @@ impl EventHandler for Bot {
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
-            let response_content = match command.data.name.as_str() {
-                "league" => {
-                    let (player_name, tag, region, game_count) = {
-                        let mut iter = command.data.options.iter();
-                        let player_name = iter
-                            .find(|opt| opt.name == "player_name")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap();
-                        let tag = iter
-                            .find(|opt| opt.name == "tag")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap();
-                        let region = iter
-                            .find(|opt| opt.name == "region")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap_or("americas");
-                        let game_count = iter
-                            .find(|opt| opt.name == "game_count")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap_or({
-                                println!("game_count not found, defaulting to 20");
-                                "20"
-                            });
-                        (player_name, tag, region, game_count)
-                    };
-                    println!(
-                        "player_name: {}, tag: {}, region: {}, game_count: {}",
-                        player_name, tag, region, game_count
-                    );
-                    let result = league::get_league_info(
-                        player_name,
-                        tag,
-                        region,
-                        game_count,
-                        &self.riot_api_key,
-                        &self.client,
-                    )
-                    .await;
-                    match result {
-                        Ok(puuid) => {
-                            format!("{}", puuid)
-                        }
-                        Err(err) => {
-                            format!("Err: {}", err)
+            let response_content: Result<DiscordOutput, Box<dyn std::error::Error>> =
+                match command.data.name.as_str() {
+                    "matches" => {
+                        let (player_name, tag, region, game_count) = {
+                            let mut iter = command.data.options.iter();
+                            let player_name = iter
+                                .find(|opt| opt.name == "player_name")
+                                .and_then(|opt| opt.value.as_str())
+                                .unwrap();
+                            let tag = iter
+                                .find(|opt| opt.name == "tag")
+                                .and_then(|opt| opt.value.as_str())
+                                .unwrap();
+                            let region = iter
+                                .find(|opt| opt.name == "region")
+                                .and_then(|opt| opt.value.as_str())
+                                .unwrap_or("americas");
+                            let game_count = iter
+                                .find(|opt| opt.name == "game_count")
+                                .and_then(|opt| opt.value.as_str())
+                                .unwrap_or({
+                                    println!("game_count not found, defaulting to 20");
+                                    "20"
+                                });
+                            (player_name, tag, region, game_count)
+                        };
+
+                        let matches_command_result = matches::handle_matches_command(
+                            player_name,
+                            tag,
+                            region,
+                            game_count,
+                            &self.riot_api_key,
+                            &self.client,
+                        )
+                        .await;
+                        match matches_command_result {
+                            Ok(matches_command_result) => Ok(matches_command_result),
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok(DiscordOutput::new(
+                                    Colour::RED,
+                                    "".to_string(),
+                                    vec![("name".to_string(), "value".to_string(), true)],
+                                    CreateEmbedFooter::new("text"),
+                                    format!("{}'s Winrate", player_name),
+                                    format!("{}", err),
+                                ))
+                            }
                         }
                     }
-                }
-                command => unreachable!("Unknown command: {}", command),
-            };
+                    command => unreachable!("Unknown command: {}", command),
+                };
 
-            let data = CreateInteractionResponseMessage::new().content(response_content);
-            let builder = CreateInteractionResponse::Message(data);
+            let DiscordOutput {
+                color,
+                description,
+                fields,
+                footer,
+                title,
+                content,
+            } = response_content.expect("");
 
-            if let Err(why) = command.create_response(&ctx.http, builder).await {
-                println!("Cannot respond to slash command: {why}");
-            }
+            let data = CreateEmbed::new()
+                .title(title)
+                .description(description)
+                .color(color)
+                .fields(fields)
+                .footer(footer);
+
+            let builder = CreateMessage::new().content(content).embed(data);
+            let channel_id = command.channel_id;
+            let _ = channel_id.send_message(&ctx.http, builder).await;
         }
     }
 }
@@ -136,10 +153,6 @@ async fn serenity(
         .get("DISCORD_TOKEN")
         .context("'DISCORD_TOKEN' was not found")?;
 
-    let weather_api_key = secret_store
-        .get("WEATHER_API_KEY")
-        .context("'WEATHER_API_KEY' was not found")?;
-
     let discord_guild_id = secret_store
         .get("DISCORD_GUILD_ID")
         .context("'DISCORD_GUILD_ID' was not found")?;
@@ -150,7 +163,6 @@ async fn serenity(
 
     let client = get_client(
         &discord_token,
-        &weather_api_key,
         discord_guild_id.parse().unwrap(),
         &riot_api_key,
     )
@@ -158,19 +170,13 @@ async fn serenity(
     Ok(client.into())
 }
 
-pub async fn get_client(
-    discord_token: &str,
-    weather_api_key: &str,
-    discord_guild_id: u64,
-    riot_api_key: &str,
-) -> Client {
+pub async fn get_client(discord_token: &str, discord_guild_id: u64, riot_api_key: &str) -> Client {
     // Set gateway intents, which decides what events the bot will be notified about.
     // Here we don't need any intents so empty
     let intents = GatewayIntents::empty();
 
     Client::builder(discord_token, intents)
         .event_handler(Bot {
-            weather_api_key: weather_api_key.to_owned(),
             client: reqwest::Client::new(),
             discord_guild_id: GuildId::new(discord_guild_id),
             riot_api_key: riot_api_key.to_owned(),
