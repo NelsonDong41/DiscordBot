@@ -72,6 +72,8 @@ impl EventHandler for Bot {
                     "matches" => {
                         let (player_name, tag, region, game_count) = {
                             let iter = command.data.options.iter();
+                            println!("{:?}", iter.clone());
+
                             let player_name = iter
                                 .clone()
                                 .find(|opt| opt.name == "player_name")
@@ -87,19 +89,10 @@ impl EventHandler for Bot {
                                 .find(|opt| opt.name == "region")
                                 .and_then(|opt| opt.value.as_str())
                                 .unwrap_or("americas");
-
-                            println!(
-                                "{:?}, {:?}",
-                                iter.clone().map(|opt| opt.name.clone()).collect::<Vec<_>>(),
-                                iter.clone()
-                                    .map(|opt| opt.value.clone())
-                                    .collect::<Vec<_>>()
-                            );
                             let game_count = iter
                                 .clone()
                                 .find(|opt| opt.name == "game_count")
-                                .and_then(|opt| opt.value.as_str())
-                                .and_then(|val| val.parse::<i64>().ok())
+                                .and_then(|opt| opt.value.as_i64())
                                 .unwrap_or_else(|| {
                                     println!("game_count not found, defaulting to 20");
                                     20
