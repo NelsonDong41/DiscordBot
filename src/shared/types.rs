@@ -37,54 +37,41 @@ pub struct AccountInfoContext {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct MatchDto {
-    #[serde(flatten)]
-    info: InfoDto,
+pub struct MatchDto {
+    pub info: InfoDto,
+    pub metadata: MetadataDto,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct MetadataDto {
-    #[serde(rename = "dataVersion")]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataDto {
     data_version: String,
-    #[serde(rename = "matchId")]
     match_id: String,
-    participants: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct InfoDto {
-    participants: Vec<ParticipantDto>,
+#[serde(rename_all = "camelCase")]
+pub struct InfoDto {
+    pub participants: Vec<ParticipantDto>,
+    pub game_mode: String,
+    pub game_name: String,
+    pub game_type: String,
 }
-
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParticipantDto {
     pub assists: i32,
-    #[serde(rename = "championName")]
     pub champion_name: String,
     pub deaths: i32,
     pub kills: i32,
-    #[serde(rename = "participantId")]
     pub participant_id: i32,
     pub puuid: String,
-    #[serde(rename = "summonerId")]
     pub summoner_id: String,
-    #[serde(rename = "summonerName")]
     pub summoner_name: String,
-    #[serde(rename = "teamPosition")]
     pub team_position: String,
     pub win: bool,
-    #[serde(rename = "riotIdGameName")]
     pub riot_id_game_name: String,
-    #[serde(rename = "teamId")]
     pub team_id: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct TeamDto {
-    #[serde(rename = "teamId")]
-    team_id: i32,
-    win: bool,
-    // Add other fields as neede
 }
 
 impl std::error::Error for OutputError {}

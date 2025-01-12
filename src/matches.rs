@@ -1,11 +1,10 @@
 use futures::future::join_all;
 use reqwest::Client;
-use serde_json::Value;
 use serenity::all::{Color, CreateEmbedFooter};
 
 use crate::shared::{
     requests::{request_for_puuid, request_matches_from_puuid, send_request},
-    types::{AccountInfoContext, DiscordOutput, ParticipantDto},
+    types::{AccountInfoContext, DiscordOutput, MatchDto},
 };
 
 pub async fn handle_matches_command(
@@ -70,7 +69,7 @@ async fn get_matches_info(
     for response in match_responses {
         match response {
             Ok(resp) => {
-                let match_data: serde_json::Value = resp.json().await?;
+                let match_data = resp.json::<MatchDto>().await?;
                 let match_info = get_match_info(match_data, count, puuid.clone()).unwrap();
                 matches.push(match_info);
                 count += 1;
@@ -104,16 +103,12 @@ async fn get_matches_info(
 }
 
 fn get_match_info(
-    match_resp: Value,
+    match_resp: MatchDto,
     game_count: i32,
     player_puuid: String,
 ) -> Result<((String, String, bool), bool), Box<dyn std::error::Error>> {
-    let info: Value = match_resp["info"].clone();
-    let participants: Vec<ParticipantDto> =
-        match serde_json::from_value(info["participants"].clone()) {
-            Ok(participants) => participants,
-            Err(_) => Vec::new(),
-        };
+    let info = match_resp.info;
+    let participants = info.participants;
     let participant_iter = participants.iter();
 
     if participant_iter.len() == 0 {

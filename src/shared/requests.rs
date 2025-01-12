@@ -72,7 +72,6 @@ pub async fn request_matches_from_puuid(
     match response_status {
         reqwest::StatusCode::OK => {
             let match_ids = response.json::<Vec<String>>().await.unwrap();
-
             return Ok(match_ids);
         }
         _ => {

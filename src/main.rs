@@ -92,9 +92,13 @@ impl EventHandler for Bot {
                             let game_count = iter
                                 .clone()
                                 .find(|opt| opt.name == "game_count")
-                                .and_then(|opt| opt.value.as_i64())
+                                .and_then(|opt| {
+                                    opt.value.as_i64().or_else(|| {
+                                        opt.value.as_str().and_then(|s| s.parse::<i64>().ok())
+                                    })
+                                })
                                 .unwrap_or_else(|| {
-                                    println!("game_count not found, defaulting to 20");
+                                    println!("game_count not found or invalid, defaulting to 20");
                                     20
                                 });
                             (player_name, tag, region, game_count)
