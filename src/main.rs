@@ -20,42 +20,45 @@ impl EventHandler for Bot {
 
         // We are creating a vector with commands
         // and registering them on the server with the guild ID we have set.
-        let commands = vec![CreateCommand::new("matches")
-            .description("Get match info for player")
-            .add_option(
-                CreateCommandOption::new(
-                    serenity::all::CommandOptionType::String,
-                    "player_name",
-                    "Player Name",
+        let commands = vec![
+            CreateCommand::new("matches")
+                .description("Get match info for player")
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "player_name",
+                        "Player Name",
+                    )
+                    .required(true),
                 )
-                .required(true),
-            )
-            .add_option(
-                CreateCommandOption::new(
-                    serenity::all::CommandOptionType::String,
-                    "tag",
-                    "playerTag",
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "tag",
+                        "playerTag",
+                    )
+                    .required(true),
                 )
-                .required(true),
-            )
-            .add_option(
-                CreateCommandOption::new(
-                    serenity::all::CommandOptionType::String,
-                    "region",
-                    "Region",
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "region",
+                        "Region",
+                    )
+                    .required(false),
                 )
-                .required(false),
-            )
-            .add_option(
-                CreateCommandOption::new(
-                    serenity::all::CommandOptionType::Integer,
-                    "game_count",
-                    "Number of games to check",
-                )
-                .min_int_value(0)
-                .max_int_value(40)
-                .required(false),
-            )];
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::Integer,
+                        "game_count",
+                        "Number of games to check",
+                    )
+                    .min_int_value(0)
+                    .max_int_value(40)
+                    .required(false),
+                ),
+            CreateCommand::new("john").description("Look at this guy"),
+        ];
         let commands = &self
             .discord_guild_id
             .set_commands(&ctx.http, commands)
@@ -67,69 +70,99 @@ impl EventHandler for Bot {
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
-            let response_content: Result<DiscordOutput, Box<dyn std::error::Error>> =
-                match command.data.name.as_str() {
-                    "matches" => {
-                        let (player_name, tag, region, game_count) = {
-                            let iter = command.data.options.iter();
-                            println!("{:?}", iter.clone());
+            let builder = CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new());
+            command.create_response(&ctx.http, builder).await.unwrap();
 
-                            let player_name = iter
-                                .clone()
-                                .find(|opt| opt.name == "player_name")
-                                .and_then(|opt| opt.value.as_str())
-                                .unwrap();
-                            let tag = iter
-                                .clone()
-                                .find(|opt| opt.name == "tag")
-                                .and_then(|opt| opt.value.as_str())
-                                .unwrap();
-                            let region = iter
-                                .clone()
-                                .find(|opt| opt.name == "region")
-                                .and_then(|opt| opt.value.as_str())
-                                .unwrap_or("americas");
-                            let game_count = iter
-                                .clone()
-                                .find(|opt| opt.name == "game_count")
-                                .and_then(|opt| {
-                                    opt.value.as_i64().or_else(|| {
-                                        opt.value.as_str().and_then(|s| s.parse::<i64>().ok())
-                                    })
+            let response_content: DiscordOutput = match command.data.name.as_str() {
+                "matches" => {
+                    let (player_name, tag, region, game_count) = {
+                        let iter = command.data.options.iter();
+                        println!("{:?}", iter.clone());
+
+                        let player_name = iter
+                            .clone()
+                            .find(|opt| opt.name == "player_name")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
+                        let tag = iter
+                            .clone()
+                            .find(|opt| opt.name == "tag")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
+                        let region = iter
+                            .clone()
+                            .find(|opt| opt.name == "region")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap_or("americas");
+                        let game_count = iter
+                            .clone()
+                            .find(|opt| opt.name == "game_count")
+                            .and_then(|opt| {
+                                opt.value.as_i64().or_else(|| {
+                                    opt.value.as_str().and_then(|s| s.parse::<i64>().ok())
                                 })
-                                .unwrap_or_else(|| {
-                                    println!("game_count not found or invalid, defaulting to 20");
-                                    20
-                                });
-                            (player_name, tag, region, game_count)
-                        };
+                            })
+                            .unwrap_or_else(|| {
+                                println!("game_count not found or invalid, defaulting to 20");
+                                20
+                            });
+                        (player_name, tag, region, game_count)
+                    };
 
-                        let matches_command_result = matches::handle_matches_command(
-                            player_name,
-                            tag,
-                            region,
-                            game_count,
-                            &self.riot_api_key,
-                            &self.client,
-                        )
-                        .await;
-                        match matches_command_result {
-                            Ok(matches_command_result) => Ok(matches_command_result),
-                            Err(err) => {
-                                println!("Error: {}", err);
-                                Ok(DiscordOutput::new(
-                                    Colour::RED,
-                                    "".to_string(),
-                                    vec![],
-                                    CreateEmbedFooter::new(err.to_string()),
-                                    format!("Request for {}'s matches FAILED", player_name),
-                                    "".to_string(),
-                                ))
-                            }
+                    let matches_command_result = matches::handle_matches_command(
+                        player_name,
+                        tag,
+                        region,
+                        game_count,
+                        &self.riot_api_key,
+                        &self.client,
+                    )
+                    .await;
+                    match matches_command_result {
+                        Ok(matches_command_result) => {
+                            Ok::<DiscordOutput, Error>(matches_command_result)
+                        }
+                        Err(err) => {
+                            println!("Error: {}", err);
+                            Ok(DiscordOutput::new(
+                                Colour::RED,
+                                "".to_string(),
+                                vec![],
+                                CreateEmbedFooter::new(err.to_string()),
+                                format!("Request for {}'s matches FAILED", player_name),
+                                "".to_string(),
+                            ))
                         }
                     }
-                    command => unreachable!("Unknown command: {}", command),
-                };
+                }
+                "john" => {
+                    let matches_command_result = matches::handle_matches_command(
+                        "SolarKnight0",
+                        "NA2",
+                        "Americas",
+                        20,
+                        &self.riot_api_key,
+                        &self.client,
+                    )
+                    .await;
+                    match matches_command_result {
+                        Ok(matches_command_result) => Ok(matches_command_result),
+                        Err(err) => {
+                            println!("Error: {}", err);
+                            Ok(DiscordOutput::new(
+                                Colour::RED,
+                                "".to_string(),
+                                vec![],
+                                CreateEmbedFooter::new(err.to_string()),
+                                format!("Request for {}'s matches FAILED", "SolarKnight0"),
+                                "".to_string(),
+                            ))
+                        }
+                    }
+                }
+                command => unreachable!("Unknown command: {}", command),
+            }
+            .expect("");
 
             let DiscordOutput {
                 color,
@@ -138,7 +171,7 @@ impl EventHandler for Bot {
                 footer,
                 title,
                 content,
-            } = response_content.expect("");
+            } = response_content;
 
             let data = CreateEmbed::new()
                 .title(title)
@@ -147,9 +180,11 @@ impl EventHandler for Bot {
                 .fields(fields)
                 .footer(footer);
 
-            let builder = CreateMessage::new().content(content).embed(data);
-            let channel_id = command.channel_id;
-            let _ = channel_id.send_message(&ctx.http, builder).await;
+            let edit_builder = EditInteractionResponse::new().content(content).embed(data);
+            command
+                .edit_response(&ctx.http, edit_builder)
+                .await
+                .unwrap();
         }
     }
 }

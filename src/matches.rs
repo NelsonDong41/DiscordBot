@@ -95,7 +95,7 @@ async fn get_matches_info(
         ),
         match_infos.collect(),
         CreateEmbedFooter::new(""),
-        format!("{}{}'s Matches", player_name, tag),
+        format!("{}#{}'s Matches", player_name, tag),
         "".to_string(),
     );
 
