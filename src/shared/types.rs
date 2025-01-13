@@ -54,8 +54,6 @@ pub struct MetadataDto {
 pub struct InfoDto {
     pub participants: Vec<ParticipantDto>,
     pub game_mode: String,
-    pub game_name: String,
-    pub game_type: String,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

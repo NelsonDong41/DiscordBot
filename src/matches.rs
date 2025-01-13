@@ -4,7 +4,7 @@ use serenity::all::{Color, CreateEmbedFooter};
 
 use crate::shared::{
     requests::{request_for_puuid, request_matches_from_puuid, send_request},
-    types::{AccountInfoContext, DiscordOutput, MatchDto},
+    types::{AccountInfoContext, DiscordOutput, InfoDto, MatchDto},
 };
 
 pub async fn handle_matches_command(
@@ -41,7 +41,7 @@ async fn get_matches_info(
         region,
         puuid,
         player_name,
-        ..
+        tag,
     } = account_info_context.clone();
     let match_ids =
         request_matches_from_puuid(game_count, api_key, account_info_context, client).await?;
@@ -78,7 +78,7 @@ async fn get_matches_info(
         }
     }
 
-    let matches_len: usize = matches.len();
+    let matches_len = matches.len();
     let match_infos_iter = matches.into_iter();
     let match_infos = match_infos_iter.clone().map(|(info, _)| info);
     let win_count = match_infos_iter
@@ -95,7 +95,7 @@ async fn get_matches_info(
         ),
         match_infos.collect(),
         CreateEmbedFooter::new(""),
-        format!("{}'s Matches", player_name),
+        format!("{}{}'s Matches", player_name, tag),
         "".to_string(),
     );
 
@@ -108,7 +108,10 @@ fn get_match_info(
     player_puuid: String,
 ) -> Result<((String, String, bool), bool), Box<dyn std::error::Error>> {
     let info = match_resp.info;
-    let participants = info.participants;
+    let InfoDto {
+        participants,
+        game_mode,
+    } = info;
     let participant_iter = participants.iter();
 
     if participant_iter.len() == 0 {
@@ -119,14 +122,25 @@ fn get_match_info(
         .clone()
         .find(|p| p.puuid == player_puuid)
         .unwrap();
+    let win = if me.win { "won" } else { "lost" };
+    let me_kda = format!("{}/{}/{}", me.kills, me.deaths, me.assists);
+
+    if game_mode != "CLASSIC" {
+        return Ok((
+            (
+                format!("{}: {} ({})", game_count, game_mode, win.to_uppercase()),
+                format!("```({})\n{}```", me_kda, me.champion_name),
+                true,
+            ),
+            me.win,
+        ));
+    }
 
     let opponent = participant_iter
         .clone()
         .find(|p| p.team_id != me.team_id && p.team_position == me.team_position)
         .unwrap();
 
-    let win = if me.win { "won" } else { "lost" };
-    let me_kda = format!("{}/{}/{}", me.kills, me.deaths, me.assists);
     let opponent_kda = format!(
         "{}/{}/{}",
         opponent.kills, opponent.deaths, opponent.assists
