@@ -85,3 +85,9 @@ pub async fn request_matches_from_puuid(
         }
     }
 }
+
+async fn get_latest_version() -> Result<String, reqwest::Error> {
+    let url = "https://ddragon.leagueoflegends.com/api/versions.json";
+    let versions: Vec<String> = reqwest::get(url).await?.json().await?;
+    Ok(versions[0].clone())
+}

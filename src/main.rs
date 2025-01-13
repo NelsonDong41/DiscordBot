@@ -6,6 +6,7 @@ use tracing::info;
 
 mod matches;
 pub mod shared;
+mod versus;
 
 struct Bot {
     client: reqwest::Client,
@@ -75,39 +76,35 @@ impl EventHandler for Bot {
 
             let response_content: DiscordOutput = match command.data.name.as_str() {
                 "matches" => {
-                    let (player_name, tag, region, game_count) = {
-                        let iter = command.data.options.iter();
-                        println!("{:?}", iter.clone());
+                    let iter = command.data.options.iter();
 
-                        let player_name = iter
-                            .clone()
-                            .find(|opt| opt.name == "player_name")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap();
-                        let tag = iter
-                            .clone()
-                            .find(|opt| opt.name == "tag")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap();
-                        let region = iter
-                            .clone()
-                            .find(|opt| opt.name == "region")
-                            .and_then(|opt| opt.value.as_str())
-                            .unwrap_or("americas");
-                        let game_count = iter
-                            .clone()
-                            .find(|opt| opt.name == "game_count")
-                            .and_then(|opt| {
-                                opt.value.as_i64().or_else(|| {
-                                    opt.value.as_str().and_then(|s| s.parse::<i64>().ok())
-                                })
-                            })
-                            .unwrap_or_else(|| {
-                                println!("game_count not found or invalid, defaulting to 20");
-                                20
-                            });
-                        (player_name, tag, region, game_count)
-                    };
+                    let player_name = iter
+                        .clone()
+                        .find(|opt| opt.name == "player_name")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap();
+                    let tag = iter
+                        .clone()
+                        .find(|opt| opt.name == "tag")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap();
+                    let region = iter
+                        .clone()
+                        .find(|opt| opt.name == "region")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap_or("americas");
+                    let game_count = iter
+                        .clone()
+                        .find(|opt| opt.name == "game_count")
+                        .and_then(|opt| {
+                            opt.value
+                                .as_i64()
+                                .or_else(|| opt.value.as_str().and_then(|s| s.parse::<i64>().ok()))
+                        })
+                        .unwrap_or_else(|| {
+                            println!("game_count not found or invalid, defaulting to 20");
+                            20
+                        });
 
                     let matches_command_result = matches::handle_matches_command(
                         player_name,
@@ -137,6 +134,61 @@ impl EventHandler for Bot {
                 }
                 "john" => {
                     let matches_command_result = matches::handle_matches_command(
+                        "SolarKnight0",
+                        "NA2",
+                        "Americas",
+                        20,
+                        &self.riot_api_key,
+                        &self.client,
+                    )
+                    .await;
+                    match matches_command_result {
+                        Ok(matches_command_result) => Ok(matches_command_result),
+                        Err(err) => {
+                            println!("Error: {}", err);
+                            Ok(DiscordOutput::new(
+                                Colour::RED,
+                                "".to_string(),
+                                vec![],
+                                CreateEmbedFooter::new(err.to_string()),
+                                format!("Request for {}'s matches FAILED", "SolarKnight0"),
+                                "".to_string(),
+                            ))
+                        }
+                    }
+                }
+                "versus" => {
+                    let iter = command.data.options.iter();
+
+                    let you = iter
+                        .clone()
+                        .find(|opt| opt.name == "player_name")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap();
+                    let enemy = iter
+                        .clone()
+                        .find(|opt| opt.name == "tag")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap();
+                    let region = iter
+                        .clone()
+                        .find(|opt| opt.name == "region")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap_or("americas");
+                    let game_count = iter
+                        .clone()
+                        .find(|opt| opt.name == "game_count")
+                        .and_then(|opt| {
+                            opt.value
+                                .as_i64()
+                                .or_else(|| opt.value.as_str().and_then(|s| s.parse::<i64>().ok()))
+                        })
+                        .unwrap_or_else(|| {
+                            println!("game_count not found or invalid, defaulting to 20");
+                            20
+                        });
+
+                    let matches_command_result = versus::handle_versus_command(
                         "SolarKnight0",
                         "NA2",
                         "Americas",
