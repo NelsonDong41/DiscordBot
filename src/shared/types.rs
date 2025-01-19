@@ -1,7 +1,6 @@
-use std::fmt::Display;
-
 use serde::{Deserialize, Serialize};
 use serenity::all::{Colour, CreateEmbedFooter};
+use std::fmt::Display;
 
 #[derive(Deserialize, Debug)]
 pub struct AccountDto {

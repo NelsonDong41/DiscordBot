@@ -4,9 +4,9 @@ use shared::types::DiscordOutput;
 use shuttle_runtime::SecretStore;
 use tracing::info;
 
+mod build;
 mod matches;
 pub mod shared;
-mod versus;
 
 struct Bot {
     client: reqwest::Client,
@@ -59,6 +59,37 @@ impl EventHandler for Bot {
                     .required(false),
                 ),
             CreateCommand::new("john").description("Look at this guy"),
+            CreateCommand::new("build")
+                .description("Get build data")
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "you",
+                        "Your champ",
+                    )
+                    .required(true),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "enemy",
+                        "Enemy Champ",
+                    )
+                    .required(false),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "lane",
+                        "Lane",
+                    )
+                    .add_string_choice("top", "Top")
+                    .add_string_choice("mid", "Mid")
+                    .add_string_choice("jungle", "Jungle")
+                    .add_string_choice("adc", "Adc")
+                    .add_string_choice("support", "Support")
+                    .required(false),
+                ),
         ];
         let commands = &self
             .discord_guild_id
@@ -157,48 +188,31 @@ impl EventHandler for Bot {
                         }
                     }
                 }
-                "versus" => {
+                "build" => {
                     let iter = command.data.options.iter();
 
                     let you = iter
                         .clone()
-                        .find(|opt| opt.name == "player_name")
+                        .find(|opt| opt.name == "you")
                         .and_then(|opt| opt.value.as_str())
                         .unwrap();
-                    let enemy = iter
-                        .clone()
-                        .find(|opt| opt.name == "tag")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap();
-                    let region = iter
-                        .clone()
-                        .find(|opt| opt.name == "region")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap_or("americas");
-                    let game_count = iter
-                        .clone()
-                        .find(|opt| opt.name == "game_count")
-                        .and_then(|opt| {
-                            opt.value
-                                .as_i64()
-                                .or_else(|| opt.value.as_str().and_then(|s| s.parse::<i64>().ok()))
-                        })
-                        .unwrap_or_else(|| {
-                            println!("game_count not found or invalid, defaulting to 20");
-                            20
-                        });
+                    let enemy_arg = iter.clone().find(|opt| opt.name == "enemy");
 
-                    let matches_command_result = versus::handle_versus_command(
-                        "SolarKnight0",
-                        "NA2",
-                        "Americas",
-                        20,
-                        &self.riot_api_key,
-                        &self.client,
-                    )
-                    .await;
-                    match matches_command_result {
-                        Ok(matches_command_result) => Ok(matches_command_result),
+                    let enemy = match enemy_arg {
+                        Some(enemy) => enemy.value.as_str(),
+                        None => None,
+                    };
+
+                    let lane_arg = iter.clone().find(|opt| opt.name == "lane");
+                    let lane: Option<&str> = match lane_arg {
+                        Some(lane) => lane.value.as_str(),
+                        None => None,
+                    };
+
+                    let build_command_result = build::handle_build_command(you, enemy, lane).await;
+
+                    match build_command_result {
+                        Ok(build_command_result) => Ok(build_command_result),
                         Err(err) => {
                             println!("Error: {}", err);
                             Ok(DiscordOutput::new(

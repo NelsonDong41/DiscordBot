@@ -15,11 +15,7 @@ pub async fn handle_matches_command(
     api_key: &str,
     client: &Client,
 ) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
-    let puuid_request = request_for_puuid(player_name, tag, region, api_key, client).await;
-    let puuid = match puuid_request {
-        Ok(puuid) => puuid,
-        Err(err) => return Err(err),
-    };
+    let puuid = request_for_puuid(player_name, tag, region, api_key, client).await?;
 
     let account_info_context = AccountInfoContext {
         puuid,
@@ -59,7 +55,7 @@ async fn get_matches_info(
     let match_futures = match_req_urls.clone().into_iter().map(|url| {
         let client_clone = client.clone();
         let api_key_clone = api_key.to_string();
-        async move { send_request(url.as_str(), api_key_clone.as_str(), &client_clone).await }
+        async move { send_request(url.as_str(), Some(api_key_clone.as_str()), &client_clone).await }
     });
 
     let match_responses = join_all(match_futures).await;
