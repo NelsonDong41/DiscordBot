@@ -16,6 +16,7 @@ struct RuneBuild {
 use crate::shared::types::DiscordOutput;
 
 const TRANSPARENT_CIRCLE: &str = "⚫";
+const COLUMN_WIDTH: usize = 10;
 
 pub async fn handle_build_command(
     champion1: &str,
@@ -36,23 +37,25 @@ pub async fn handle_build_command(
     let primary_icon = get_color_from_rune_title(&primary.title).unwrap();
     let primary_tree = perks_to_colored_grid(primary.perks, primary_icon);
     let primary_tree_string_rows: Vec<String> = primary_tree.iter().map(grid_to_row).collect();
+    let mut primary_tree_string_with_title = vec![primary.title];
+    primary_tree_string_with_title.extend(primary_tree_string_rows);
 
     let secondary_icon = get_color_from_rune_title(&secondary.title).unwrap();
     let secondary_tree = perks_to_colored_grid(secondary.perks, secondary_icon);
-    let mut secondary_tree_string_rows: Vec<String> =
-        secondary_tree.iter().map(grid_to_row).collect();
+    let secondary_tree_string_rows: Vec<String> = secondary_tree.iter().map(grid_to_row).collect();
+    let mut secondary_tree_string_with_title = vec![secondary.title];
+    secondary_tree_string_with_title.extend(secondary_tree_string_rows);
 
     let shards_tree = perks_to_colored_grid(shards.perks, "⚪");
     let shards_tree_string_rows: Vec<String> = shards_tree.iter().map(grid_to_row).collect();
+    let mut shards_tree_string_with_title = vec![shards.title];
+    shards_tree_string_with_title.extend(shards_tree_string_rows);
 
-    println!("Secondary tree {:?}", secondary_tree_string_rows);
-    println!("Shards tree {:?}", shards_tree_string_rows);
-
-    secondary_tree_string_rows.extend(shards_tree_string_rows);
+    secondary_tree_string_with_title.extend(shards_tree_string_with_title);
 
     let zipped_to_columns = columnize_trees(
-        primary_tree_string_rows.iter(),
-        secondary_tree_string_rows.iter(),
+        primary_tree_string_with_title.iter(),
+        secondary_tree_string_with_title.iter(),
     );
 
     let rune_field: (String, String, bool) = (
@@ -277,29 +280,26 @@ fn columnize_trees<'a, T: Iterator<Item = &'a String>>(iter1: T, iter2: T) -> St
     let mut acc = String::new();
     let mut iter1clone = iter1.cloned();
     let mut iter2clone = iter2.cloned();
-    let mut iter1_next = iter1clone.next();
-    let mut iter2_next = iter2clone.next();
 
-    while let (Some(val1), Some(val2)) = (iter1_next.as_ref(), iter2_next.as_ref()) {
-        if iter1_next.is_none() || iter2_next.is_none() {
+    loop {
+        let val1 = iter1clone.next();
+        let val2 = iter2clone.next();
+
+        if val1.is_none() && val2.is_none() {
             break;
         }
-        acc.push_str(format!("{: <20}{: <20}\n", val1, val2).as_str());
-        iter1_next = iter1clone.next();
-        iter2_next = iter2clone.next();
+
+        let left = val1.unwrap_or_default();
+        let right = val2.unwrap_or_default();
+
+        let left_width = left.width();
+
+        let left_padding = " ".repeat(COLUMN_WIDTH.saturating_sub(left_width));
+
+        acc.push_str(&format!("{}{}{}\n", left, left_padding, right));
     }
 
-    while let Some(val1) = iter1_next.as_ref() {
-        acc.push_str(format!("{: <20}{: <20}\n", val1, "").as_str());
-        iter1_next = iter1clone.next();
-    }
-
-    while let Some(val2) = iter2_next.as_ref() {
-        acc.push_str(format!("{: <20}{: <20}\n", "", val2).as_str());
-        iter2_next = iter2clone.next();
-    }
-
-    println!("Columned {:?}", acc);
+    println!("Columned:\n{}", acc);
     acc
 }
 
@@ -309,5 +309,4 @@ fn grid_to_row(row: &Vec<&str>) -> String {
         .iter()
         .fold(result, |acc2, cell| format!("{}{}", acc2, cell));
     result
-}
 }
