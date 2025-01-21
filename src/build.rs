@@ -1,11 +1,11 @@
 use headless_chrome::Browser;
-use html5ever::serialize::{serialize, SerializeOpts};
 use scraper::{Html, Selector};
 use serenity::all::{Color, CreateEmbedFooter};
+use unicode_width::UnicodeWidthStr;
 
 struct RuneBuildInfo {
     title: String,
-    perks: Vec<usize>,
+    perks: Vec<Vec<bool>>,
 }
 struct RuneBuild {
     primary: RuneBuildInfo,
@@ -14,6 +14,8 @@ struct RuneBuild {
 }
 
 use crate::shared::types::DiscordOutput;
+
+const TRANSPARENT_CIRCLE: &str = "⚫";
 
 pub async fn handle_build_command(
     champion1: &str,
@@ -24,23 +26,38 @@ pub async fn handle_build_command(
 
     let win_rate = get_winrate_as_f64(document.clone());
     let lane = get_lane(document.clone(), lane);
+
     let RuneBuild {
         primary,
         secondary,
         shards,
     } = get_runes(document);
 
+    let primary_icon = get_color_from_rune_title(&primary.title).unwrap();
+    let primary_tree = perks_to_colored_grid(primary.perks, primary_icon);
+    let primary_tree_string_rows: Vec<String> = primary_tree.iter().map(grid_to_row).collect();
+
+    let secondary_icon = get_color_from_rune_title(&secondary.title).unwrap();
+    let secondary_tree = perks_to_colored_grid(secondary.perks, secondary_icon);
+    let mut secondary_tree_string_rows: Vec<String> =
+        secondary_tree.iter().map(grid_to_row).collect();
+
+    let shards_tree = perks_to_colored_grid(shards.perks, "⚪");
+    let shards_tree_string_rows: Vec<String> = shards_tree.iter().map(grid_to_row).collect();
+
+    println!("Secondary tree {:?}", secondary_tree_string_rows);
+    println!("Shards tree {:?}", shards_tree_string_rows);
+
+    secondary_tree_string_rows.extend(shards_tree_string_rows);
+
+    let zipped_to_columns = columnize_trees(
+        primary_tree_string_rows.iter(),
+        secondary_tree_string_rows.iter(),
+    );
+
     let rune_field: (String, String, bool) = (
         "Runes".to_string(),
-        format!(
-            "```\n{}\n{:?}\n{}\n{:?}\n{}\n{:?}```",
-            primary.title,
-            primary.perks,
-            secondary.title,
-            secondary.perks,
-            shards.title,
-            shards.perks
-        ),
+        format!("```{}```", zipped_to_columns),
         false,
     );
     let (color, description) = get_descriptors(win_rate);
@@ -124,15 +141,19 @@ fn get_lane(document: Html, lane: Option<&str>) -> String {
 
 fn get_runes(document: Html) -> RuneBuild {
     let primary_rune_title_selector =
-        Selector::parse("div.rune-tree.primary-tree div.perk-style-title div.pointer").unwrap();
-    let primary_rune_tree_selector =
-        Selector::parse("div.rune-tree.primary-tree div.perk-row div.perks").unwrap();
+        Selector::parse("div.media-query_MOBILE_LARGE__DESKTOP_LARGE div.rune-tree.primary-tree div.perk-style-title div.pointer").unwrap();
+    let primary_rune_tree_selector = Selector::parse(
+        "div.media-query_MOBILE_LARGE__DESKTOP_LARGE div.rune-tree.primary-tree div.perk-row div.perks",
+    )
+    .unwrap();
     let secondary_rune_title_selector =
-        Selector::parse("div.secondary-tree div.perk-style-title div.pointer").unwrap();
+        Selector::parse("div.media-query_MOBILE_LARGE__DESKTOP_LARGE div.secondary-tree div.perk-style-title div.pointer").unwrap();
     let secondary_rune_tree_selector =
-        Selector::parse("div.secondary-tree div.rune-tree div.perk-row div.perks").unwrap();
-    let stat_shard_selector =
-        Selector::parse("div.stat-shards-container div.perk-row div.perks").unwrap();
+        Selector::parse("div.media-query_MOBILE_LARGE__DESKTOP_LARGE div.secondary-tree :first-child div.rune-tree div.perk-row div.perks").unwrap();
+    let stat_shard_selector = Selector::parse(
+        "div.media-query_MOBILE_LARGE__DESKTOP_LARGE div.stat-shards-container div.perk-row div.perks",
+    )
+    .unwrap();
 
     let primary_rune_title = document
         .clone()
@@ -142,22 +163,15 @@ fn get_runes(document: Html) -> RuneBuild {
         .text()
         .collect::<String>();
 
-    println!("primary title {}", primary_rune_title);
-
-    let primary_runes = document
+    let primary_runes: Vec<Vec<bool>> = document
         .clone()
         .select(&primary_rune_tree_selector)
-        .inspect(|x| println!("what the {:?}", x))
         .map(|row| {
             row.child_elements()
-                .position(|child| {
-                    println!("{}", child.inner_html());
-                    child.attr("class").unwrap().contains("perk-active")
-                })
-                .expect("")
+                .map(|child| child.attr("class").unwrap().contains("perk-active"))
+                .collect()
         })
-        .collect::<Vec<usize>>();
-    println!("primary runes {:?}", primary_runes);
+        .collect();
 
     let secondary_rune_title = document
         .clone()
@@ -167,26 +181,25 @@ fn get_runes(document: Html) -> RuneBuild {
         .text()
         .collect::<String>();
 
-    let secondary_runes = document
+    let secondary_runes: Vec<Vec<bool>> = document
         .clone()
         .select(&secondary_rune_tree_selector)
-        .inspect(|x| println!("SIZE OF SECONDARY RUN ROWS {}", x.child_elements().count()))
         .map(|row| {
             row.child_elements()
-                .position(|child| child.attr("class").unwrap().contains("perk-active"))
-                .unwrap_or(usize::MAX)
+                .map(|child| child.attr("class").unwrap().contains("perk-active"))
+                .collect()
         })
-        .collect::<Vec<usize>>();
+        .collect();
 
-    let stat_shards = document
+    let stat_shards: Vec<Vec<bool>> = document
         .clone()
         .select(&stat_shard_selector)
         .map(|row| {
             row.child_elements()
-                .position(|child| child.attr("class").unwrap().contains("shard-active"))
-                .unwrap()
+                .map(|child| child.attr("class").unwrap().contains("shard-active"))
+                .collect()
         })
-        .collect::<Vec<usize>>();
+        .collect();
 
     return RuneBuild {
         primary: RuneBuildInfo {
@@ -234,4 +247,67 @@ fn capitalize_string(input: &str) -> String {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
+}
+
+fn get_color_from_rune_title(title: &str) -> Result<&str, Box<dyn std::error::Error>> {
+    match title {
+        "Precision" => Ok("🟡"),
+        "Resolve" => Ok("🟢"),
+        "Inspiration" => Ok("🔵"),
+        "Domination" => Ok("🔴"),
+        "Sorcery" => Ok("🟣"),
+        _ => Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "TItle doesn't map to a color",
+        ))),
+    }
+}
+
+fn perks_to_colored_grid(grid: Vec<Vec<bool>>, icon: &str) -> Vec<Vec<&str>> {
+    grid.iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| if *cell { icon } else { TRANSPARENT_CIRCLE })
+                .collect()
+        })
+        .collect()
+}
+
+fn columnize_trees<'a, T: Iterator<Item = &'a String>>(iter1: T, iter2: T) -> String {
+    let mut acc = String::new();
+    let mut iter1clone = iter1.cloned();
+    let mut iter2clone = iter2.cloned();
+    let mut iter1_next = iter1clone.next();
+    let mut iter2_next = iter2clone.next();
+
+    while let (Some(val1), Some(val2)) = (iter1_next.as_ref(), iter2_next.as_ref()) {
+        if iter1_next.is_none() || iter2_next.is_none() {
+            break;
+        }
+        acc.push_str(format!("{: <20}{: <20}\n", val1, val2).as_str());
+        iter1_next = iter1clone.next();
+        iter2_next = iter2clone.next();
+    }
+
+    while let Some(val1) = iter1_next.as_ref() {
+        acc.push_str(format!("{: <20}{: <20}\n", val1, "").as_str());
+        iter1_next = iter1clone.next();
+    }
+
+    while let Some(val2) = iter2_next.as_ref() {
+        acc.push_str(format!("{: <20}{: <20}\n", "", val2).as_str());
+        iter2_next = iter2clone.next();
+    }
+
+    println!("Columned {:?}", acc);
+    acc
+}
+
+fn grid_to_row(row: &Vec<&str>) -> String {
+    let mut result: String = String::new();
+    result = row
+        .iter()
+        .fold(result, |acc2, cell| format!("{}{}", acc2, cell));
+    result
+}
 }
