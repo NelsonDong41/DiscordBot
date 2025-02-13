@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Context as _;
 use serenity::all::*;
 use shared::types::DiscordOutput;
@@ -5,7 +7,7 @@ use shuttle_runtime::SecretStore;
 use tracing::info;
 
 mod build;
-mod matches;
+pub mod matches;
 pub mod shared;
 
 struct Bot {
@@ -104,6 +106,7 @@ impl EventHandler for Bot {
         if let Interaction::Command(command) = interaction {
             let builder = CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new());
             command.create_response(&ctx.http, builder).await.unwrap();
+            let start = Instant::now();
 
             let response_content: DiscordOutput = match command.data.name.as_str() {
                 "matches" => {
@@ -156,7 +159,7 @@ impl EventHandler for Bot {
                                 Colour::RED,
                                 "".to_string(),
                                 vec![],
-                                CreateEmbedFooter::new(err.to_string()),
+                                err.to_string(),
                                 format!("Request for {}'s matches FAILED", player_name),
                                 "".to_string(),
                             ))
@@ -181,7 +184,7 @@ impl EventHandler for Bot {
                                 Colour::RED,
                                 "".to_string(),
                                 vec![],
-                                CreateEmbedFooter::new(err.to_string()),
+                                err.to_string(),
                                 format!("Request for {}'s matches FAILED", "SolarKnight0"),
                                 "".to_string(),
                             ))
@@ -219,7 +222,7 @@ impl EventHandler for Bot {
                                 Colour::RED,
                                 "".to_string(),
                                 vec![],
-                                CreateEmbedFooter::new(err.to_string()),
+                                err.to_string(),
                                 format!("Request for {}'s matches FAILED", "SolarKnight0"),
                                 "".to_string(),
                             ))
@@ -229,6 +232,8 @@ impl EventHandler for Bot {
                 command => unreachable!("Unknown command: {}", command),
             }
             .expect("");
+
+            let duration = start.elapsed();
 
             let DiscordOutput {
                 color,
@@ -244,7 +249,10 @@ impl EventHandler for Bot {
                 .description(description)
                 .color(color)
                 .fields(fields)
-                .footer(footer);
+                .footer(CreateEmbedFooter::new(format!(
+                    "({:?}) {}",
+                    duration, footer
+                )));
 
             let edit_builder = EditInteractionResponse::new().content(content).embed(data);
             command

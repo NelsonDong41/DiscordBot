@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serenity::all::{Colour, CreateEmbedFooter};
+use serenity::all::Colour;
 use std::fmt::Display;
 
 #[derive(Deserialize, Debug)]
@@ -77,7 +77,7 @@ pub struct DiscordOutput {
     pub color: Colour,
     pub description: String,
     pub fields: Vec<(String, String, bool)>,
-    pub footer: CreateEmbedFooter,
+    pub footer: String,
     pub title: String,
     pub content: String,
 }
@@ -87,7 +87,7 @@ impl DiscordOutput {
         color: Colour,
         description: String,
         fields: Vec<(String, String, bool)>,
-        footer: CreateEmbedFooter,
+        footer: String,
         title: String,
         content: String,
     ) -> Self {

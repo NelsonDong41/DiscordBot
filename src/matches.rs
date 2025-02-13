@@ -1,6 +1,6 @@
 use futures::future::join_all;
 use reqwest::Client;
-use serenity::all::{Color, CreateEmbedFooter};
+use serenity::all::Color;
 
 use crate::shared::{
     requests::{request_for_puuid, request_matches_from_puuid, send_request},
@@ -90,7 +90,7 @@ async fn get_matches_info(
             matches_len,
         ),
         match_infos.collect(),
-        CreateEmbedFooter::new(""),
+        "".to_string(),
         format!("{}#{}'s Matches", player_name, tag),
         "".to_string(),
     );
