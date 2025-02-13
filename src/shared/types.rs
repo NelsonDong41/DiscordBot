@@ -73,6 +73,7 @@ pub struct ParticipantDto {
 
 impl std::error::Error for OutputError {}
 
+#[derive(Debug)]
 pub struct DiscordOutput {
     pub color: Colour,
     pub description: String,

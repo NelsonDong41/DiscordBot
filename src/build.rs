@@ -107,7 +107,12 @@ pub async fn handle_build_command(
     }
 }
 
+#[instrument(skip(tab))]
 pub fn handle_build_continuation(tab: &Arc<Tab>, previous_output: DiscordOutput) -> DiscordOutput {
+    info!(
+        "handle_build_continuation called with param: previous_output = {:?}",
+        previous_output
+    );
     let item_build_info = generate_item_build_info(&tab).expect("");
     let mut new_fields = previous_output.fields;
     new_fields.extend_from_slice(&item_build_info);
@@ -170,7 +175,7 @@ async fn get_u_gg_document_body(
 
 #[instrument(skip(document), fields(enemy = enemy,))]
 fn get_winrate_as_f64(document: &Html, enemy: &Option<&str>) -> f64 {
-    info!("get_winrate_as_f64 called with params: enemy = {:?}", enemy);
+    info!("get_winrate_as_f64 called");
 
     let winrate_selector = Selector::parse(".champion-recommended-build > div:first-child > div:first-child > div:first-child > div:first-child").unwrap();
     let winrate_selector_if_opp = Selector::parse(".champion-recommended-build > div:first-child > div:first-child > div:nth-child(2) > div:first-child").unwrap();
@@ -205,7 +210,7 @@ fn get_winrate_as_f64(document: &Html, enemy: &Option<&str>) -> f64 {
 
 #[instrument(skip(tab, lane), fields(lane = lane))]
 fn get_lane(tab: &Arc<Tab>, lane: Option<&str>) -> String {
-    info!("get_lane called with params: lane = {:?}", lane);
+    info!("get_lane called");
 
     let result = match lane {
         Some(x) => x.to_string().to_uppercase(),
@@ -332,10 +337,7 @@ fn get_runes(tab: &Arc<Tab>) -> RuneBuild {
 
 #[instrument(fields(win_rate = win_rate))]
 fn get_descriptors(win_rate: f64) -> (Color, String) {
-    info!(
-        "get_descriptors called with params: win_rate = {:?}",
-        win_rate
-    );
+    info!("get_descriptors called");
 
     let result = if win_rate > 50.0 {
         (Color::BLUE, format!("You better win ({}%)", win_rate))
@@ -352,10 +354,7 @@ fn get_descriptors(win_rate: f64) -> (Color, String) {
 
 #[instrument(fields(champion1 = champion1, champion2 = champion2, lane = lane))]
 fn get_title(champion1: &str, champion2: Option<&str>, lane: &str) -> String {
-    info!(
-        "get_title called with params: champion1 = {:?}, champion2 = {:?}, lane = {:?}",
-        champion1, champion2, lane
-    );
+    info!("get_title called");
 
     let result = match champion2 {
         Some(enemy_champ) => {
@@ -376,7 +375,7 @@ fn get_title(champion1: &str, champion2: Option<&str>, lane: &str) -> String {
 
 #[instrument(fields(input = input))]
 fn capitalize_string(input: &str) -> String {
-    info!("capitalize_string called with params: input = {:?}", input);
+    info!("capitalize_string called");
 
     let result = match input.chars().next() {
         None => String::new(),
@@ -393,10 +392,7 @@ fn capitalize_string(input: &str) -> String {
 
 #[instrument(fields(title = title))]
 fn get_color_from_rune_title(title: &str) -> Result<&str, Box<anyhow::Error>> {
-    info!(
-        "get_color_from_rune_title called with params: title = {:?}",
-        title
-    );
+    info!("get_color_from_rune_title called ");
 
     let result = match title {
         "Precision" => Ok("🟡"),
@@ -414,10 +410,7 @@ fn get_color_from_rune_title(title: &str) -> Result<&str, Box<anyhow::Error>> {
 
 #[instrument(fields(icon = icon))]
 fn perks_to_colored_grid(grid: Vec<Vec<bool>>, icon: &str) -> Vec<Vec<&str>> {
-    info!(
-        "perks_to_colored_grid called with params: grid = {:#?}, icon = {:?}",
-        grid, icon
-    );
+    info!("perks_to_colored_grid called",);
 
     let result = grid
         .iter()
@@ -437,10 +430,7 @@ fn columnize_trees<'a, T: Iterator<Item = &'a String> + std::fmt::Debug>(
     iter1: T,
     iter2: T,
 ) -> String {
-    info!(
-        "columnize_trees called with params: iter1 = {:#?}, iter2 = {:#?}",
-        iter1, iter2
-    );
+    info!("columnize_trees called");
 
     let mut acc = String::new();
     let mut iter1clone = iter1.cloned();
@@ -471,7 +461,7 @@ fn columnize_trees<'a, T: Iterator<Item = &'a String> + std::fmt::Debug>(
 
 #[instrument]
 fn grid_to_row(row: &Vec<&str>) -> String {
-    info!("grid_to_row called with params: row = {:#?}", row);
+    info!("grid_to_row called");
 
     let result = row
         .iter()
@@ -515,15 +505,12 @@ fn generate_item_build_info(tab: &Arc<Tab>) -> Result<ItemBuildInfo, Box<dyn std
     Ok(result)
 }
 
-#[instrument(skip(tab))]
+#[instrument(skip(tab), fields(selector = selector))]
 fn find_names_for_items(
     tab: &Arc<Tab>,
     selector: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    info!(
-        "find_names_for_items called with params: selector = {:?}",
-        selector
-    );
+    info!("find_names_for_items called");
 
     let tooltip_text_selector = "div#tooltip-portal .tooltip-item .name";
     let elements = tab.wait_for_elements(selector)?;
