@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use anyhow::Context as _;
+use headless_chrome::{Browser, LaunchOptionsBuilder};
 use serenity::all::*;
 use shared::types::DiscordOutput;
 use shuttle_runtime::SecretStore;
@@ -106,9 +107,17 @@ impl EventHandler for Bot {
         if let Interaction::Command(command) = interaction {
             let builder = CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new());
             command.create_response(&ctx.http, builder).await.unwrap();
+            let browser = Browser::new(
+                LaunchOptionsBuilder::default()
+                    .headless(true)
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+            let tab = browser.new_tab().unwrap();
             let start = Instant::now();
 
-            let response_content: DiscordOutput = match command.data.name.as_str() {
+            let mut response_content: DiscordOutput = match command.data.name.as_str() {
                 "matches" => {
                     let iter = command.data.options.iter();
 
@@ -212,7 +221,8 @@ impl EventHandler for Bot {
                         None => None,
                     };
 
-                    let build_command_result = build::handle_build_command(you, enemy, lane).await;
+                    let build_command_result =
+                        build::handle_build_command(you, enemy, lane, &tab).await;
 
                     match build_command_result {
                         Ok(build_command_result) => Ok(build_command_result),
@@ -233,13 +243,48 @@ impl EventHandler for Bot {
             }
             .expect("");
 
+            // Duration of finding build info with scraping takes too long compared to champ select screen, this first handles runes then later outputs build
+            if match command.data.name.as_str() {
+                "build" => true,
+                _ => false,
+            } {
+                let duration = start.elapsed();
+
+                let DiscordOutput {
+                    color,
+                    description,
+                    fields,
+                    footer: _,
+                    title,
+                    content,
+                } = &response_content;
+
+                let data = CreateEmbed::new()
+                    .title(title)
+                    .description(description)
+                    .color(*color)
+                    .fields(fields.clone())
+                    .footer(CreateEmbedFooter::new(format!(
+                        "Initial rune time {:?}",
+                        duration
+                    )));
+
+                let edit_builder = EditInteractionResponse::new().content(content).embed(data);
+                command
+                    .edit_response(&ctx.http, edit_builder)
+                    .await
+                    .unwrap();
+
+                response_content = build::handle_build_continuation(&tab, response_content);
+            }
+
             let duration = start.elapsed();
 
             let DiscordOutput {
                 color,
                 description,
                 fields,
-                footer,
+                footer: _,
                 title,
                 content,
             } = response_content;
@@ -249,10 +294,7 @@ impl EventHandler for Bot {
                 .description(description)
                 .color(color)
                 .fields(fields)
-                .footer(CreateEmbedFooter::new(format!(
-                    "({:?}) {}",
-                    duration, footer
-                )));
+                .footer(CreateEmbedFooter::new(format!("({:?})", duration)));
 
             let edit_builder = EditInteractionResponse::new().content(content).embed(data);
             command

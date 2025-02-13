@@ -1,6 +1,6 @@
 use std::{sync::Arc, vec};
 
-use headless_chrome::{Browser, LaunchOptionsBuilder, Tab};
+use headless_chrome::Tab;
 use scraper::Html;
 use scraper::Selector;
 use serenity::all::{Color, Colour};
@@ -25,16 +25,13 @@ use crate::shared::types::DiscordOutput;
 const TRANSPARENT_CIRCLE: &str = "⚫";
 const COLUMN_WIDTH: usize = 15;
 
-#[instrument(fields(champion1 = champion1, champion2 = champion2, lane = lane))]
+#[instrument(skip(tab), fields(champion1 = champion1, champion2 = champion2, lane = lane))]
 pub async fn handle_build_command(
     champion1: &str,
     champion2: Option<&str>,
     lane: Option<&str>,
+    tab: &Arc<Tab>,
 ) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
-    // Your existing code here
-    let browser = Browser::new(LaunchOptionsBuilder::default().headless(true).build()?)?;
-    let tab = browser.new_tab()?;
-
     let document = get_u_gg_document_body(champion1, champion2, lane, &tab).await;
 
     // Match document
@@ -94,20 +91,30 @@ pub async fn handle_build_command(
             let (color, description) = get_descriptors(win_rate);
             let title = get_title(champion1, champion2, &lane);
 
-            let item_build_info = generate_item_build_info(&tab).expect("");
-
-            let mut fields = vec![rune_field];
-            fields.extend_from_slice(&item_build_info);
-
             return Ok(DiscordOutput::new(
                 color,
                 description,
-                fields,
+                vec![rune_field],
                 "".to_string(),
                 title,
                 "".to_string(),
             ));
         }
+    }
+}
+
+pub fn handle_build_continuation(tab: &Arc<Tab>, previous_output: DiscordOutput) -> DiscordOutput {
+    let item_build_info = generate_item_build_info(&tab).expect("");
+    let mut new_fields = previous_output.fields;
+    new_fields.extend_from_slice(&item_build_info);
+
+    DiscordOutput {
+        color: previous_output.color,
+        description: previous_output.description,
+        fields: new_fields,
+        footer: previous_output.footer,
+        title: previous_output.title,
+        content: previous_output.content,
     }
 }
 
