@@ -8,6 +8,7 @@ use shuttle_runtime::SecretStore;
 use tracing::info;
 
 mod build;
+mod counters;
 pub mod matches;
 pub mod shared;
 
