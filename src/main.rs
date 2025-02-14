@@ -94,6 +94,24 @@ impl EventHandler for Bot {
                     .add_string_choice("support", "Support")
                     .required(false),
                 ),
+            CreateCommand::new("counter")
+                .description("Get counter data for a champion")
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "champion",
+                        "Champion to find counter information for",
+                    )
+                    .required(true),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        serenity::all::CommandOptionType::String,
+                        "lane",
+                        "Lane you are playing in",
+                    )
+                    .required(false),
+                ),
         ];
         let commands = &self
             .discord_guild_id
@@ -170,7 +188,7 @@ impl EventHandler for Bot {
                                 "".to_string(),
                                 vec![],
                                 err.to_string(),
-                                format!("Request for {}'s matches FAILED", player_name),
+                                "".to_string(),
                                 "".to_string(),
                             ))
                         }
@@ -195,7 +213,39 @@ impl EventHandler for Bot {
                                 "".to_string(),
                                 vec![],
                                 err.to_string(),
-                                format!("Request for {}'s matches FAILED", "SolarKnight0"),
+                                "".to_string(),
+                                "".to_string(),
+                            ))
+                        }
+                    }
+                }
+                "counter" => {
+                    let iter = command.data.options.iter();
+                    let champion = iter
+                        .clone()
+                        .find(|opt| opt.name == "champion")
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap();
+
+                    let lane_arg = iter.clone().find(|opt| opt.name == "lane");
+                    let lane: Option<&str> = match lane_arg {
+                        Some(lane) => lane.value.as_str(),
+                        None => None,
+                    };
+
+                    let counters_result =
+                        counters::handle_counters_command(champion, lane, &tab).await;
+
+                    match counters_result {
+                        Ok(result) => Ok(result),
+                        Err(err) => {
+                            println!("Error: {}", err);
+                            Ok(DiscordOutput::new(
+                                Colour::RED,
+                                "".to_string(),
+                                vec![],
+                                err.to_string(),
+                                "".to_string(),
                                 "".to_string(),
                             ))
                         }
@@ -234,7 +284,7 @@ impl EventHandler for Bot {
                                 "".to_string(),
                                 vec![],
                                 err.to_string(),
-                                format!("Request for {}'s matches FAILED", "SolarKnight0"),
+                                "".to_string(),
                                 "".to_string(),
                             ))
                         }

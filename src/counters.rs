@@ -2,29 +2,34 @@ use std::sync::Arc;
 
 use headless_chrome::Tab;
 use scraper::{Html, Selector};
-use tracing::instrument;
+use serenity::all::Colour;
+use tracing::{info, instrument};
 
 use crate::shared::types::DiscordOutput;
 
+const NUM_CHAMP_COUNTERS: usize = 10;
+
 #[instrument(skip(tab), fields(champion = champion, lane = lane))]
-pub async fn handle_build_command(
+pub async fn handle_counters_command(
     champion: &str,
     lane: Option<&str>,
     tab: &Arc<Tab>,
 ) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
-    let document = get_u_gg_document_body(champion, lane, &tab).await;
+    info!("handle_counters_command called");
+    let document = get_u_gg_document_body(champion, lane, &tab).await.unwrap();
 
-    let best_picks_selector = Selector::parse(".w-full grid .gap-[12px] .grid-cols-[repeat(3,1fr)] .max-[900px]:grid-cols-[repeat(2,1fr)] .max-[600px]:grid-cols-1 div:first-child a").unwrap();
-    let worst_picks_selector = Selector::parse(".w-full grid .gap-[12px] .grid-cols-[repeat(3,1fr)] .max-[900px]:grid-cols-[repeat(2,1fr)] .max-[600px]:grid-cols-1 div:nth-child(2) a").unwrap();
-    let lane_picks_selector = Selector::parse(".w-full grid .gap-[12px] .grid-cols-[repeat(3,1fr)] .max-[900px]:grid-cols-[repeat(2,1fr)] .max-[600px]:grid-cols-1 div:nth-child(3) a").unwrap();
+    let lane = get_lane(&document, lane);
 
-    let name_selector = Selector::parse(".text-white .text-[14px] .font-bold .truncate").unwrap();
-    let winrate_selector = Selector::parse(".text-[12px] .font-bold .leading-[15px] .whitespace-nowrap .text-right .text-accent-blue-400").unwrap();
+    let best_picks_selector = Selector::parse(".w-full.grid div:first-child a").unwrap();
+    let worst_picks_selector = Selector::parse(".w-full.grid div:nth-child(2) a").unwrap();
+    let lane_picks_selector = Selector::parse(".w-full.grid div:nth-child(3) a").unwrap();
 
-    let best_picks = document
-        .as_ref()
-        .unwrap()
+    let name_selector = Selector::parse(".text-white.font-bold.truncate").unwrap();
+    let winrate_selector = Selector::parse(".font-bold.whitespace-nowrap.text-right").unwrap();
+
+    let best_picks = &document
         .select(&best_picks_selector)
+        .take(NUM_CHAMP_COUNTERS)
         .map(|anchor| {
             let name = anchor
                 .select(&name_selector)
@@ -32,7 +37,8 @@ pub async fn handle_build_command(
                 .unwrap()
                 .text()
                 .next()
-                .expect("");
+                .expect("")
+                .trim();
             let winrate = anchor
                 .select(&winrate_selector)
                 .next()
@@ -40,38 +46,101 @@ pub async fn handle_build_command(
                 .text()
                 .next()
                 .expect("");
+            format!("{:<10} - {}\n", name, winrate)
         })
-        .collect::<Vec<String>>();
+        .fold(String::new(), |mut acc, pick_info| {
+            acc.push_str(&pick_info);
+            acc
+        });
 
-    let worst_picks = document
-        .as_ref()
-        .unwrap()
+    let worst_picks = &document
         .select(&worst_picks_selector)
-        .map(|x| x.text().collect::<String>())
-        .collect::<Vec<String>>();
+        .take(NUM_CHAMP_COUNTERS)
+        .map(|anchor| {
+            let name = anchor
+                .select(&name_selector)
+                .next()
+                .unwrap()
+                .text()
+                .next()
+                .expect("")
+                .trim();
+            let winrate = anchor
+                .select(&winrate_selector)
+                .next()
+                .unwrap()
+                .text()
+                .next()
+                .expect("");
+            format!("{:<10} - {}\n", name, winrate)
+        })
+        .fold(String::new(), |mut acc, pick_info| {
+            acc.push_str(&pick_info);
+            acc
+        });
 
-    let lane_picks = document
-        .as_ref()
-        .unwrap()
+    let lane_picks = &document
         .select(&lane_picks_selector)
-        .map(|x| x.text().collect::<String>())
-        .collect::<Vec<String>>();
+        .take(NUM_CHAMP_COUNTERS)
+        .map(|anchor| {
+            let name = anchor
+                .select(&name_selector)
+                .next()
+                .unwrap()
+                .text()
+                .next()
+                .expect("")
+                .trim();
+            let winrate = anchor
+                .select(&winrate_selector)
+                .next()
+                .unwrap()
+                .text()
+                .next()
+                .expect("");
+            format!("{:<10} - {}\n", name, winrate)
+        })
+        .fold(String::new(), |mut acc, pick_info| {
+            acc.push_str(&pick_info);
+            acc
+        });
+
+    let fields = vec![
+        (
+            "🟢 - Best Picks".to_string(),
+            format!("```{}```", best_picks),
+            false,
+        ),
+        (
+            "🔴 - Worst Picks".to_string(),
+            format!("```{}```", worst_picks),
+            false,
+        ),
+        (
+            "🟡 - Lane Picks".to_string(),
+            format!("```{}```", lane_picks),
+            false,
+        ),
+    ];
 
     Ok(DiscordOutput {
-        title: format!("Best picks for {}", champion),
-        description: best_picks.join("\n"),
-        color: todo!(),
-        fields: todo!(),
-        footer: todo!(),
-        content: todo!(),
+        title: format!("Counter picks for {} ({})", champion, lane),
+        description: "".to_string(),
+        color: Colour::DARK_GREEN,
+        fields,
+        footer: "".to_string(),
+        content: "".to_string(),
     })
 }
 
+#[instrument(skip(tab), fields(champion = champion, lane = lane))]
 async fn get_u_gg_document_body(
     champion: &str,
     lane: Option<&str>,
     tab: &Arc<Tab>,
 ) -> Result<Html, Box<dyn std::error::Error>> {
+    info!("get_u_gg_document_body called");
+
     let mut u_gg_url = String::with_capacity(128);
 
     u_gg_url.push_str("https://u.gg/lol/champions/");
@@ -90,4 +159,31 @@ async fn get_u_gg_document_body(
     let champion_information = tab.wait_for_element("div#content")?;
 
     Ok(Html::parse_document(&champion_information.get_content()?))
+}
+
+fn get_lane(document: &Html, lane: Option<&str>) -> String {
+    info!("get_lane called");
+
+    let result = match lane {
+        Some(x) => x.to_string().to_uppercase(),
+        None => {
+            let lane_selector = Selector::parse(
+                ".media-query_MOBILE_SMALL__DESKTOP_SMALL .filter-select .role-value div",
+            )
+            .unwrap();
+            document
+                .select(&lane_selector)
+                .next()
+                .expect("")
+                .text()
+                .next()
+                .expect("")
+                .trim()
+                .to_string()
+        }
+    };
+
+    info!("get_lane result: result = {:?}", result);
+
+    result
 }
