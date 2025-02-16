@@ -38,7 +38,6 @@ pub async fn handle_build_command(
 ) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
     let document = get_u_gg_document_body(champion1, champion2, lane, &tab).await;
 
-    // Match document
     match document {
         Err(err) => {
             return Ok(DiscordOutput::new(
@@ -52,13 +51,13 @@ pub async fn handle_build_command(
         }
         Ok(document) => {
             let win_rate = get_winrate_as_f64(&document, &champion2);
-            let lane = get_lane(&tab, lane);
+            let lane = get_lane(&document, lane);
 
             let RuneBuild {
                 primary,
                 secondary,
                 shards,
-            } = get_runes(&tab);
+            } = get_runes(&document);
 
             let primary_icon = get_color_from_rune_title(&primary.title).unwrap();
             let primary_tree = perks_to_colored_grid(primary.perks, primary_icon);
@@ -168,7 +167,7 @@ async fn get_u_gg_document_body(
     tab.wait_for_element(".champion-recommended-build")?;
     tab.wait_for_element("a.role-filter.active")?;
 
-    let champion_information = tab.find_element("div.champion-recommended-build")?;
+    let champion_information = tab.find_element("div#content")?;
 
     Ok(Html::parse_document(&champion_information.get_content()?))
 }
@@ -208,18 +207,22 @@ fn get_winrate_as_f64(document: &Html, enemy: &Option<&str>) -> f64 {
     win_rate
 }
 
-#[instrument(skip(tab, lane), fields(lane = lane))]
-fn get_lane(tab: &Arc<Tab>, lane: Option<&str>) -> String {
-    info!("get_lane called");
-
+#[instrument(skip(document, lane), fields(lane = lane))]
+fn get_lane(document: &Html, lane: Option<&str>) -> String {
     let result = match lane {
         Some(x) => x.to_string().to_uppercase(),
         None => {
-            let lane_selector =
-                ".media-query_MOBILE_SMALL__DESKTOP_SMALL .filter-select .role-value div";
-            tab.wait_for_element(&lane_selector)
+            let lane_selector = Selector::parse(".role-value div").unwrap();
+            info!(
+                "get_lane called {:#?}",
+                document.select(&lane_selector).next()
+            );
+            document
+                .select(&lane_selector)
+                .next()
                 .expect("")
-                .get_inner_text()
+                .text()
+                .next()
                 .expect("")
                 .to_uppercase()
         }
@@ -230,40 +233,42 @@ fn get_lane(tab: &Arc<Tab>, lane: Option<&str>) -> String {
     result
 }
 
-#[instrument(skip(tab))]
-fn get_runes(tab: &Arc<Tab>) -> RuneBuild {
+#[instrument(skip(document))]
+fn get_runes(document: &Html) -> RuneBuild {
     info!("get_runes called");
 
-    let primary_rune_title_selector =
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-style-title .pointer";
-    let secondary_rune_title_selector =
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree .perk-style-title .pointer";
+    let primary_rune_title_selector = Selector::parse(
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-style-title .pointer").unwrap();
+    let secondary_rune_title_selector = Selector::parse(
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree .perk-style-title .pointer",
+    )
+    .unwrap();
 
     // Combined selectors for efficiency
-    let primary_rune_selector =
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-row .perks .perk";
-    let secondary_rune_selector =
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree :first-child .rune-tree .perk-row .perks .perk";
-    let stat_shard_selector =
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .stat-shards-container .perk-row .perks .shard";
+    let primary_rune_selector = Selector::parse(
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-row .perks .perk",
+    )
+    .unwrap();
+    let secondary_rune_selector = Selector::parse(
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree :first-child .rune-tree .perk-row .perks .perk").unwrap();
+    let stat_shard_selector = Selector::parse(
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .stat-shards-container .perk-row .perks .shard",
+    )
+    .unwrap();
 
-    let primary_rune_title = tab
-        .wait_for_element(&primary_rune_title_selector)
+    let primary_rune_title = document
+        .select(&primary_rune_title_selector)
+        .next()
         .expect("")
-        .get_inner_text()
-        .expect("");
+        .text()
+        .next()
+        .expect("")
+        .trim();
 
-    let primary_runes = tab
-        .wait_for_elements(&primary_rune_selector)
-        .expect("")
+    let primary_runes = document
+        .select(&primary_rune_selector)
         .into_iter()
-        .map(|child| {
-            child
-                .get_attribute_value("class")
-                .unwrap()
-                .unwrap()
-                .contains("perk-active")
-        })
+        .map(|child| child.attr("class").unwrap().contains("perk-active"))
         .collect::<Vec<bool>>()
         .into_iter()
         .enumerate()
@@ -277,51 +282,40 @@ fn get_runes(tab: &Arc<Tab>) -> RuneBuild {
             acc
         });
 
-    let secondary_rune_title = tab
-        .wait_for_element(&secondary_rune_title_selector)
+    let secondary_rune_title = document
+        .select(&secondary_rune_title_selector)
+        .next()
         .expect("")
-        .get_inner_text()
-        .expect("");
+        .text()
+        .next()
+        .expect("")
+        .trim();
 
-    let secondary_runes: Vec<Vec<bool>> = tab
-        .wait_for_elements(&secondary_rune_selector)
-        .expect("Failed to find secondary rune elements")
+    let secondary_runes: Vec<Vec<bool>> = document
+        .select(&secondary_rune_selector)
         .into_iter()
-        .map(|child| {
-            child
-                .get_attribute_value("class")
-                .unwrap()
-                .unwrap()
-                .contains("perk-active")
-        })
+        .map(|child| child.attr("class").unwrap().contains("perk-active"))
         .collect::<Vec<bool>>()
         .chunks(3)
         .map(|chunk| chunk.to_vec())
         .collect::<Vec<Vec<bool>>>();
 
-    let stat_shards = tab
-        .wait_for_elements(&stat_shard_selector)
-        .expect("")
+    let stat_shards = document
+        .select(&stat_shard_selector)
         .into_iter()
-        .map(|child| {
-            child
-                .get_attribute_value("class")
-                .unwrap()
-                .unwrap()
-                .contains("shard-active")
-        })
+        .map(|child| child.attr("class").unwrap().contains("shard-active"))
         .collect::<Vec<bool>>()
-        .chunks(3) //Chunk into rows of 3
+        .chunks(3)
         .map(|chunk| chunk.to_vec())
         .collect::<Vec<Vec<bool>>>();
 
     let result = RuneBuild {
         primary: RuneBuildInfo {
-            title: primary_rune_title,
+            title: primary_rune_title.to_string(),
             perks: primary_runes,
         },
         secondary: RuneBuildInfo {
-            title: secondary_rune_title,
+            title: secondary_rune_title.to_string(),
             perks: secondary_runes,
         },
         shards: RuneBuildInfo {

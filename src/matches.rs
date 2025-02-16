@@ -55,7 +55,7 @@ async fn get_matches_info(
     let match_futures = match_req_urls.clone().into_iter().map(|url| {
         let client_clone = client.clone();
         let api_key_clone = api_key.to_string();
-        async move { send_request(url.as_str(), Some(api_key_clone.as_str()), &client_clone).await }
+        async move { send_request(&url, Some(&api_key_clone), &client_clone).await }
     });
 
     let match_responses = join_all(match_futures).await;

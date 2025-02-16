@@ -22,97 +22,101 @@ struct Bot {
 impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("{} is connected!", ready.user.name);
+        let matches = CreateCommand::new("matches")
+            .description("Get match info for player")
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "player_name",
+                    "Player Name",
+                )
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "tag",
+                    "playerTag",
+                )
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "region",
+                    "Region",
+                )
+                .add_string_choice("Americas", "americas")
+                .add_string_choice("Asia", "asia")
+                .add_string_choice("Europe", "europe")
+                .required(false),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::Integer,
+                    "game_count",
+                    "Number of games to check",
+                )
+                .min_int_value(0)
+                .max_int_value(40)
+                .required(false),
+            );
 
-        // We are creating a vector with commands
-        // and registering them on the server with the guild ID we have set.
-        let commands = vec![
-            CreateCommand::new("matches")
-                .description("Get match info for player")
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "player_name",
-                        "Player Name",
-                    )
-                    .required(true),
+        let john = CreateCommand::new("john").description("Look at this guy");
+
+        let build = CreateCommand::new("build")
+            .description("Get build data")
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "you",
+                    "Your champ",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "tag",
-                        "playerTag",
-                    )
-                    .required(true),
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "enemy",
+                    "Enemy Champ",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "region",
-                        "Region",
-                    )
+                .required(false),
+            )
+            .add_option(
+                CreateCommandOption::new(serenity::all::CommandOptionType::String, "lane", "Lane")
+                    .add_string_choice("Top", "top")
+                    .add_string_choice("Mid", "mid")
+                    .add_string_choice("Jungle", "jungle")
+                    .add_string_choice("Adc", "adc")
+                    .add_string_choice("Support", "support")
                     .required(false),
+            );
+
+        let counter = CreateCommand::new("counter")
+            .description("Get counter data for a champion")
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "champion",
+                    "Champion to find counter information for",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::Integer,
-                        "game_count",
-                        "Number of games to check",
-                    )
-                    .min_int_value(0)
-                    .max_int_value(40)
-                    .required(false),
-                ),
-            CreateCommand::new("john").description("Look at this guy"),
-            CreateCommand::new("build")
-                .description("Get build data")
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "you",
-                        "Your champ",
-                    )
-                    .required(true),
+                .required(true),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "lane",
+                    "Lane you are playing in",
                 )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "enemy",
-                        "Enemy Champ",
-                    )
-                    .required(false),
-                )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "lane",
-                        "Lane",
-                    )
-                    .add_string_choice("top", "Top")
-                    .add_string_choice("mid", "Mid")
-                    .add_string_choice("jungle", "Jungle")
-                    .add_string_choice("adc", "Adc")
-                    .add_string_choice("support", "Support")
-                    .required(false),
-                ),
-            CreateCommand::new("counter")
-                .description("Get counter data for a champion")
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "champion",
-                        "Champion to find counter information for",
-                    )
-                    .required(true),
-                )
-                .add_option(
-                    CreateCommandOption::new(
-                        serenity::all::CommandOptionType::String,
-                        "lane",
-                        "Lane you are playing in",
-                    )
-                    .required(false),
-                ),
-        ];
+                .add_string_choice("Top", "top")
+                .add_string_choice("Mid", "mid")
+                .add_string_choice("Jungle", "jungle")
+                .add_string_choice("Adc", "adc")
+                .add_string_choice("Support", "support")
+                .required(false),
+            );
+
+        let commands = vec![matches, john, build, counter];
         let commands = &self
             .discord_guild_id
             .set_commands(&ctx.http, commands)
@@ -133,6 +137,7 @@ impl EventHandler for Bot {
                     .unwrap(),
             )
             .unwrap();
+
             let tab = browser.new_tab().unwrap();
             let start = Instant::now();
 
