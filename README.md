@@ -29,7 +29,12 @@ The bot currently supports three main commands:
 
 #### Example Output for `/match` Command
 
+##### Preliminary Data
+
 ![Build Command Output](build.png)
+
+##### Complete Data
+
 ![Build Command Output](build_complete.png)
 
 #### Example Output for `/counter` Command

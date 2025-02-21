@@ -141,163 +141,181 @@ impl EventHandler for Bot {
             let tab = browser.new_tab().unwrap();
             let start = Instant::now();
 
-            let mut response_content: DiscordOutput = match command.data.name.as_str() {
-                "matches" => {
-                    let iter = command.data.options.iter();
+            let mut response_content: (DiscordOutput, Option<String>) =
+                match command.data.name.as_str() {
+                    "matches" => {
+                        let iter = command.data.options.iter();
 
-                    let player_name = iter
-                        .clone()
-                        .find(|opt| opt.name == "player_name")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap();
-                    let tag = iter
-                        .clone()
-                        .find(|opt| opt.name == "tag")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap();
-                    let region = iter
-                        .clone()
-                        .find(|opt| opt.name == "region")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap_or("americas");
-                    let game_count = iter
-                        .clone()
-                        .find(|opt| opt.name == "game_count")
-                        .and_then(|opt| {
-                            opt.value
-                                .as_i64()
-                                .or_else(|| opt.value.as_str().and_then(|s| s.parse::<i64>().ok()))
-                        })
-                        .unwrap_or_else(|| {
-                            println!("game_count not found or invalid, defaulting to 20");
-                            20
-                        });
+                        let player_name = iter
+                            .clone()
+                            .find(|opt| opt.name == "player_name")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
+                        let tag = iter
+                            .clone()
+                            .find(|opt| opt.name == "tag")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
+                        let region = iter
+                            .clone()
+                            .find(|opt| opt.name == "region")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap_or("americas");
+                        let game_count = iter
+                            .clone()
+                            .find(|opt| opt.name == "game_count")
+                            .and_then(|opt| {
+                                opt.value.as_i64().or_else(|| {
+                                    opt.value.as_str().and_then(|s| s.parse::<i64>().ok())
+                                })
+                            })
+                            .unwrap_or_else(|| {
+                                println!("game_count not found or invalid, defaulting to 20");
+                                20
+                            });
 
-                    let matches_command_result = matches::handle_matches_command(
-                        player_name,
-                        tag,
-                        region,
-                        game_count,
-                        &self.riot_api_key,
-                        &self.client,
-                    )
-                    .await;
-                    match matches_command_result {
-                        Ok(matches_command_result) => {
-                            Ok::<DiscordOutput, Error>(matches_command_result)
-                        }
-                        Err(err) => {
-                            println!("Error: {}", err);
-                            Ok(DiscordOutput::new(
-                                Colour::RED,
-                                "".to_string(),
-                                vec![],
-                                err.to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                            ))
-                        }
-                    }
-                }
-                "john" => {
-                    let matches_command_result = matches::handle_matches_command(
-                        "SolarKnight0",
-                        "NA2",
-                        "Americas",
-                        20,
-                        &self.riot_api_key,
-                        &self.client,
-                    )
-                    .await;
-                    match matches_command_result {
-                        Ok(matches_command_result) => Ok(matches_command_result),
-                        Err(err) => {
-                            println!("Error: {}", err);
-                            Ok(DiscordOutput::new(
-                                Colour::RED,
-                                "".to_string(),
-                                vec![],
-                                err.to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                            ))
+                        let matches_command_result = matches::handle_matches_command(
+                            player_name,
+                            tag,
+                            region,
+                            game_count,
+                            &self.riot_api_key,
+                            &self.client,
+                        )
+                        .await;
+                        match matches_command_result {
+                            Ok(matches_command_result) => {
+                                Ok::<
+                                    (DiscordOutput, std::option::Option<String>),
+                                    Box<dyn std::error::Error + Send + Sync>,
+                                >((matches_command_result, None))
+                            }
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok((
+                                    DiscordOutput::new(
+                                        Colour::RED,
+                                        "".to_string(),
+                                        vec![],
+                                        err.to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ),
+                                    None,
+                                ))
+                            }
                         }
                     }
-                }
-                "counter" => {
-                    let iter = command.data.options.iter();
-                    let champion = iter
-                        .clone()
-                        .find(|opt| opt.name == "champion")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap();
-
-                    let lane_arg = iter.clone().find(|opt| opt.name == "lane");
-                    let lane: Option<&str> = match lane_arg {
-                        Some(lane) => lane.value.as_str(),
-                        None => None,
-                    };
-
-                    let counters_result =
-                        counters::handle_counters_command(champion, lane, &tab).await;
-
-                    match counters_result {
-                        Ok(result) => Ok(result),
-                        Err(err) => {
-                            println!("Error: {}", err);
-                            Ok(DiscordOutput::new(
-                                Colour::RED,
-                                "".to_string(),
-                                vec![],
-                                err.to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                            ))
+                    "john" => {
+                        let matches_command_result = matches::handle_matches_command(
+                            "SolarKnight0",
+                            "NA2",
+                            "Americas",
+                            20,
+                            &self.riot_api_key,
+                            &self.client,
+                        )
+                        .await;
+                        match matches_command_result {
+                            Ok(matches_command_result) => Ok((matches_command_result, None)),
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok((
+                                    DiscordOutput::new(
+                                        Colour::RED,
+                                        "".to_string(),
+                                        vec![],
+                                        err.to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ),
+                                    None,
+                                ))
+                            }
                         }
                     }
-                }
-                "build" => {
-                    let iter = command.data.options.iter();
+                    "counter" => {
+                        let iter = command.data.options.iter();
+                        let champion = iter
+                            .clone()
+                            .find(|opt| opt.name == "champion")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
 
-                    let you = iter
-                        .clone()
-                        .find(|opt| opt.name == "you")
-                        .and_then(|opt| opt.value.as_str())
-                        .unwrap();
-                    let enemy_arg = iter.clone().find(|opt| opt.name == "enemy");
+                        let lane_arg = iter.clone().find(|opt| opt.name == "lane");
+                        let lane: Option<&str> = match lane_arg {
+                            Some(lane) => lane.value.as_str(),
+                            None => None,
+                        };
 
-                    let enemy = match enemy_arg {
-                        Some(enemy) => enemy.value.as_str(),
-                        None => None,
-                    };
+                        let counters_result =
+                            counters::handle_counters_command(champion, lane, &tab).await;
 
-                    let lane_arg = iter.clone().find(|opt| opt.name == "lane");
-                    let lane: Option<&str> = match lane_arg {
-                        Some(lane) => lane.value.as_str(),
-                        None => None,
-                    };
-
-                    let build_command_result =
-                        build::handle_build_command(you, enemy, lane, &tab).await;
-
-                    match build_command_result {
-                        Ok(build_command_result) => Ok(build_command_result),
-                        Err(err) => {
-                            println!("Error: {}", err);
-                            Ok(DiscordOutput::new(
-                                Colour::RED,
-                                "".to_string(),
-                                vec![],
-                                err.to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                            ))
+                        match counters_result {
+                            Ok(result) => Ok((result, None)),
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok((
+                                    DiscordOutput::new(
+                                        Colour::RED,
+                                        "".to_string(),
+                                        vec![],
+                                        err.to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ),
+                                    None,
+                                ))
+                            }
                         }
                     }
+                    "build" => {
+                        let iter = command.data.options.iter();
+
+                        let you = iter
+                            .clone()
+                            .find(|opt| opt.name == "you")
+                            .and_then(|opt| opt.value.as_str())
+                            .unwrap();
+                        let enemy_arg = iter.clone().find(|opt| opt.name == "enemy");
+
+                        let enemy = match enemy_arg {
+                            Some(enemy) => enemy.value.as_str(),
+                            None => None,
+                        };
+
+                        let lane_arg = iter.clone().find(|opt| opt.name == "lane");
+                        let lane: Option<&str> = match lane_arg {
+                            Some(lane) => lane.value.as_str(),
+                            None => None,
+                        };
+
+                        let build_command_result: std::result::Result<
+                            (DiscordOutput, Option<String>),
+                            Box<dyn std::error::Error>,
+                        > = build::handle_build_command(you, enemy, lane, &tab).await;
+
+                        match build_command_result {
+                            Ok(build_command_result) => Ok(build_command_result),
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok((
+                                    DiscordOutput::new(
+                                        Colour::RED,
+                                        "".to_string(),
+                                        vec![],
+                                        err.to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ),
+                                    None,
+                                ))
+                            }
+                        }
+                    }
+                    command => unreachable!("Unknown command: {}", command),
                 }
-                command => unreachable!("Unknown command: {}", command),
-            }
-            .expect("");
+                .expect("");
 
             // Duration of finding build info with scraping takes too long compared to champ select screen, this first handles runes then later outputs build
             if match command.data.name.as_str() {
@@ -305,6 +323,8 @@ impl EventHandler for Bot {
                 _ => false,
             } {
                 let duration = start.elapsed();
+                let discord_output = response_content.0;
+                let document = response_content.1.expect("");
 
                 let DiscordOutput {
                     color,
@@ -313,7 +333,7 @@ impl EventHandler for Bot {
                     footer: _,
                     title,
                     content,
-                } = &response_content;
+                } = &discord_output;
 
                 let data = CreateEmbed::new()
                     .title(title)
@@ -331,7 +351,10 @@ impl EventHandler for Bot {
                     .await
                     .unwrap();
 
-                response_content = build::handle_build_continuation(&tab, response_content);
+                response_content = (
+                    build::handle_build_continuation(&tab, document, discord_output),
+                    None,
+                );
             }
 
             let duration = start.elapsed();
@@ -343,7 +366,7 @@ impl EventHandler for Bot {
                 footer: _,
                 title,
                 content,
-            } = response_content;
+            } = response_content.0;
 
             let data = CreateEmbed::new()
                 .title(title)

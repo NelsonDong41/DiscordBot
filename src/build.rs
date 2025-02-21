@@ -22,12 +22,14 @@ struct RuneBuild {
     secondary: RuneBuildInfo,
     shards: RuneBuildInfo,
 }
-type ItemBuildInfo = Vec<(String, String, bool)>;
+
+type SkillOrderInfo = Vec<Vec<bool>>;
 
 use crate::shared::types::DiscordOutput;
 
 const TRANSPARENT_CIRCLE: &str = "⚫";
-const COLUMN_WIDTH: usize = 15;
+const SELECTED_CIRCLE: &str = "⚪";
+const RUNE_COLUMN_WIDTH: usize = 15;
 
 #[instrument(skip(tab), fields(champion1 = champion1, champion2 = champion2, lane = lane))]
 pub async fn handle_build_command(
@@ -35,18 +37,21 @@ pub async fn handle_build_command(
     champion2: Option<&str>,
     lane: Option<&str>,
     tab: &Arc<Tab>,
-) -> Result<DiscordOutput, Box<dyn std::error::Error>> {
+) -> Result<(DiscordOutput, Option<String>), Box<dyn std::error::Error>> {
     let document = get_u_gg_document_body(champion1, champion2, lane, &tab).await;
 
     match document {
         Err(err) => {
-            return Ok(DiscordOutput::new(
-                Colour::DARK_RED,
-                err.to_string(),
-                vec![],
-                "".to_string(),
-                format!("Error fetching build for {}", champion1),
-                "".to_string(),
+            return Ok((
+                DiscordOutput::new(
+                    Colour::DARK_RED,
+                    err.to_string(),
+                    vec![],
+                    "".to_string(),
+                    format!("Error fetching build for {}", champion1),
+                    "".to_string(),
+                ),
+                None,
             ));
         }
         Ok(document) => {
@@ -73,7 +78,7 @@ pub async fn handle_build_command(
             let mut secondary_tree_string_with_title = vec![secondary.title];
             secondary_tree_string_with_title.extend(secondary_tree_string_rows);
 
-            let shards_tree = perks_to_colored_grid(shards.perks, "⚪");
+            let shards_tree = perks_to_colored_grid(shards.perks, SELECTED_CIRCLE);
             let shards_tree_string_rows: Vec<String> =
                 shards_tree.iter().map(grid_to_row).collect();
             let mut shards_tree_string_with_title = vec![shards.title];
@@ -94,27 +99,47 @@ pub async fn handle_build_command(
             let (color, description) = get_descriptors(win_rate);
             let title = get_title(champion1, champion2, &lane);
 
-            return Ok(DiscordOutput::new(
-                color,
-                description,
-                vec![rune_field],
-                "".to_string(),
-                title,
-                "".to_string(),
+            return Ok((
+                DiscordOutput::new(
+                    color,
+                    description,
+                    vec![rune_field],
+                    "".to_string(),
+                    title,
+                    "".to_string(),
+                ),
+                Some(document.html()),
             ));
         }
     }
 }
 
-#[instrument(skip(tab))]
-pub fn handle_build_continuation(tab: &Arc<Tab>, previous_output: DiscordOutput) -> DiscordOutput {
+#[instrument(skip(tab, document))]
+pub fn handle_build_continuation(
+    tab: &Arc<Tab>,
+    document: String,
+    previous_output: DiscordOutput,
+) -> DiscordOutput {
     info!(
         "handle_build_continuation called with param: previous_output = {:?}",
         previous_output
     );
-    let item_build_info = generate_item_build_info(&tab).expect("");
+
+    let html = Html::parse_document(&document);
+
     let mut new_fields = previous_output.fields;
-    new_fields.extend_from_slice(&item_build_info);
+    let item_build_info = (
+        "Item Build".to_string(),
+        format!("```{}```", generate_item_build_info(&tab).expect("")),
+        false,
+    );
+    let skill_order = (
+        "Skill Order".to_string(),
+        format!("```{}```", generate_skill_order(&html).expect("")),
+        false,
+    );
+    new_fields.push(item_build_info);
+    new_fields.push(skill_order);
 
     DiscordOutput {
         color: previous_output.color,
@@ -246,13 +271,13 @@ fn get_runes(document: &Html) -> RuneBuild {
 
     // Combined selectors for efficiency
     let primary_rune_selector = Selector::parse(
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-row .perks .perk",
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .rune-tree.primary-tree .perk-row .perks",
     )
     .unwrap();
     let secondary_rune_selector = Selector::parse(
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree :first-child .rune-tree .perk-row .perks .perk").unwrap();
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .secondary-tree :first-child .rune-tree .perk-row .perks").unwrap();
     let stat_shard_selector = Selector::parse(
-        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .stat-shards-container .perk-row .perks .shard",
+        ".media-query_MOBILE_LARGE__DESKTOP_LARGE .stat-shards-container .perk-row .perks",
     )
     .unwrap();
 
@@ -268,19 +293,20 @@ fn get_runes(document: &Html) -> RuneBuild {
     let primary_runes = document
         .select(&primary_rune_selector)
         .into_iter()
-        .map(|child| child.attr("class").unwrap().contains("perk-active"))
-        .collect::<Vec<bool>>()
-        .into_iter()
-        .enumerate()
-        .fold(Vec::new(), |mut acc, (i, value)| {
-            if i == 0 {
-                acc.push(Vec::new());
-            } else if i == 4 || (i > 4 && (i - 4) % 3 == 0) {
-                acc.push(Vec::new());
-            }
-            acc.last_mut().unwrap().push(value);
-            acc
-        });
+        .map(|row| {
+            row.children()
+                .map(|child| {
+                    child
+                        .value()
+                        .as_element()
+                        .expect("")
+                        .attr("class")
+                        .unwrap()
+                        .contains("perk-active")
+                })
+                .collect()
+        })
+        .collect();
 
     let secondary_rune_title = document
         .select(&secondary_rune_title_selector)
@@ -294,20 +320,38 @@ fn get_runes(document: &Html) -> RuneBuild {
     let secondary_runes: Vec<Vec<bool>> = document
         .select(&secondary_rune_selector)
         .into_iter()
-        .map(|child| child.attr("class").unwrap().contains("perk-active"))
-        .collect::<Vec<bool>>()
-        .chunks(3)
-        .map(|chunk| chunk.to_vec())
-        .collect::<Vec<Vec<bool>>>();
+        .map(|row| {
+            row.children()
+                .map(|child| {
+                    child
+                        .value()
+                        .as_element()
+                        .expect("")
+                        .attr("class")
+                        .unwrap()
+                        .contains("perk-active")
+                })
+                .collect()
+        })
+        .collect();
 
     let stat_shards = document
         .select(&stat_shard_selector)
         .into_iter()
-        .map(|child| child.attr("class").unwrap().contains("shard-active"))
-        .collect::<Vec<bool>>()
-        .chunks(3)
-        .map(|chunk| chunk.to_vec())
-        .collect::<Vec<Vec<bool>>>();
+        .map(|row| {
+            row.children()
+                .map(|child| {
+                    child
+                        .value()
+                        .as_element()
+                        .expect("")
+                        .attr("class")
+                        .unwrap()
+                        .contains("shard-active")
+                })
+                .collect()
+        })
+        .collect();
 
     let result = RuneBuild {
         primary: RuneBuildInfo {
@@ -443,8 +487,7 @@ fn columnize_trees<'a, T: Iterator<Item = &'a String> + std::fmt::Debug>(
 
         let left_width = left.width();
 
-        let left_padding = " ".repeat(COLUMN_WIDTH.saturating_sub(left_width));
-
+        let left_padding = " ".repeat(RUNE_COLUMN_WIDTH.saturating_sub(left_width));
         acc.push_str(&format!("{}{}{}\n", left, left_padding, right));
     }
 
@@ -467,7 +510,7 @@ fn grid_to_row(row: &Vec<&str>) -> String {
 }
 
 #[instrument(skip(tab))]
-fn generate_item_build_info(tab: &Arc<Tab>) -> Result<ItemBuildInfo, Box<dyn std::error::Error>> {
+fn generate_item_build_info(tab: &Arc<Tab>) -> Result<String, Box<dyn std::error::Error>> {
     info!("generate_item_build_info called");
 
     let starting_items_selector = ".recommended-build_items .starting-items .item-img";
@@ -476,23 +519,31 @@ fn generate_item_build_info(tab: &Arc<Tab>) -> Result<ItemBuildInfo, Box<dyn std
     let fifth_item_options_selector = ".recommended-build_items .item-options-2 .item-img";
     let sixth_item_options_selector = ".recommended-build_items .item-options-3 .item-img";
 
-    let starting_items = find_names_for_items(&tab, starting_items_selector)?.join(" > ");
-    let core_items = find_names_for_items(&tab, core_items_selector)?.join(" > ");
-    let fourth_item_options = find_names_for_items(&tab, fourth_item_options_selector)?.join(" > ");
-    let fifth_item_options = find_names_for_items(&tab, fifth_item_options_selector)?.join(" > ");
-    let sixth_item_options = find_names_for_items(&tab, sixth_item_options_selector)?.join(" > ");
+    let mut starting_items = "    ".to_string();
+    starting_items.push_str(&find_names_for_items(&tab, starting_items_selector)?.join("\n    "));
+    let mut core_items = "    ".to_string();
+    core_items.push_str(&find_names_for_items(&tab, core_items_selector)?.join("\n    "));
+    let mut fourth_item_options = "    ".to_string();
+    fourth_item_options
+        .push_str(&find_names_for_items(&tab, fourth_item_options_selector)?.join("\n    "));
+    let mut fifth_item_options = "    ".to_string();
+    fifth_item_options
+        .push_str(&find_names_for_items(&tab, fifth_item_options_selector)?.join("\n    "));
+    let mut sixth_item_options = "    ".to_string();
+    sixth_item_options
+        .push_str(&find_names_for_items(&tab, sixth_item_options_selector)?.join("\n    "));
 
     let result = vec![
-        ("Starting Items".to_string(), starting_items, false),
-        ("Core Items".to_string(), core_items, false),
-        (
-            "Fourth Item Options".to_string(),
-            fourth_item_options,
-            false,
-        ),
-        ("Fifth Item Options".to_string(), fifth_item_options, false),
-        ("Sixth Item Options".to_string(), sixth_item_options, false),
-    ];
+        ("Starting Items", starting_items),
+        ("Core Items", core_items),
+        ("Fourth Item Options", fourth_item_options),
+        ("Fifth Item Options", fifth_item_options),
+        ("Sixth Item Options", sixth_item_options),
+    ]
+    .into_iter()
+    .fold(String::new(), |acc, (item_group, items)| {
+        format!("{}{}:\n{}\n", acc, item_group, items)
+    });
 
     info!("generate_item_build_info result: result = {:?}", result);
 
@@ -518,10 +569,86 @@ fn find_names_for_items(
         let tooltip_text = tooltip_element
             .get_inner_text()
             .expect("Failed to get tooltip text");
-        item_names.push(tooltip_text);
+        item_names.push(format!("> {}", tooltip_text));
     }
 
     info!("find_names_for_items result: item_names = {:?}", item_names);
 
     Ok(item_names)
+}
+
+#[instrument(skip(document))]
+fn generate_skill_order(document: &Html) -> Result<String, Box<dyn std::error::Error>> {
+    info!("generate_skill_order called");
+
+    let skill_order_selector = Selector::parse(".skill-order-row").unwrap();
+
+    let result: SkillOrderInfo = document
+        .select(&skill_order_selector)
+        .into_iter()
+        .map(|element| {
+            let skill_order = element
+                .select(&Selector::parse(".skill-order > div").unwrap())
+                .into_iter()
+                .map(|skill| {
+                    let class = skill.attr("class").expect("").trim().to_string();
+
+                    !class.contains("no-skill-up")
+                })
+                .collect();
+
+            return skill_order;
+        })
+        .collect();
+
+    let output = generate_output_from_skills(result);
+    Ok(output)
+}
+
+fn generate_output_from_skills(skills: SkillOrderInfo) -> String {
+    info!("generate_output_from_skills called {:?}", skills);
+
+    let mut transposed: Vec<Vec<String>> = vec![Vec::new(); 18]; // Assuming max 18 levels
+
+    let skill_names = vec![
+        "Q".to_string(),
+        "W".to_string(),
+        "E".to_string(),
+        "R".to_string(),
+        "Passive".to_string(),
+    ]
+    .join("   ");
+
+    skills.iter().for_each(|skill| {
+        let mut i = 0;
+        skill
+            .iter()
+            .map(|x| {
+                i += 1;
+                if *x {
+                    if i == 6 || i == 11 || i == 16 {
+                        "🟡".to_string()
+                    } else {
+                        SELECTED_CIRCLE.to_string()
+                    }
+                } else {
+                    TRANSPARENT_CIRCLE.to_string()
+                }
+            })
+            .enumerate()
+            .for_each(|(index, circle)| {
+                if index < transposed.len() {
+                    transposed[index].push(circle);
+                }
+            });
+    });
+
+    let column_output = transposed
+        .into_iter()
+        .enumerate()
+        .map(|(index, column)| format!("{:<5} {}", index + 1, column.join("  ")))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    format!("       {}\n{}", skill_names, column_output)
 }
