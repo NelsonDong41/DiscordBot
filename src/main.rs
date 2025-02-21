@@ -11,6 +11,7 @@ mod build;
 mod counters;
 pub mod matches;
 pub mod shared;
+pub mod tierlist;
 
 struct Bot {
     client: reqwest::Client,
@@ -116,7 +117,33 @@ impl EventHandler for Bot {
                 .required(false),
             );
 
-        let commands = vec![matches, john, build, counter];
+        let tierlist = CreateCommand::new("tierlist")
+            .description("Get tierlist data")
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::String,
+                    "lane",
+                    "Lane you are playing in",
+                )
+                .add_string_choice("Top", "top")
+                .add_string_choice("Mid", "mid")
+                .add_string_choice("Jungle", "jungle")
+                .add_string_choice("Adc", "adc")
+                .add_string_choice("Support", "support")
+                .required(false),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    serenity::all::CommandOptionType::Integer,
+                    "game_count",
+                    "Number of games to check",
+                )
+                .min_int_value(1)
+                .max_int_value(30)
+                .required(false),
+            );
+
+        let commands = vec![matches, john, build, counter, tierlist];
         let commands = &self
             .discord_guild_id
             .set_commands(&ctx.http, commands)
@@ -297,6 +324,41 @@ impl EventHandler for Bot {
 
                         match build_command_result {
                             Ok(build_command_result) => Ok(build_command_result),
+                            Err(err) => {
+                                println!("Error: {}", err);
+                                Ok((
+                                    DiscordOutput::new(
+                                        Colour::RED,
+                                        "".to_string(),
+                                        vec![],
+                                        err.to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ),
+                                    None,
+                                ))
+                            }
+                        }
+                    }
+                    "tierlist" => {
+                        let iter = command.data.options.iter();
+                        let lane_arg = iter.clone().find(|opt| opt.name == "lane");
+                        let lane: Option<&str> = match lane_arg {
+                            Some(lane) => lane.value.as_str(),
+                            None => None,
+                        };
+
+                        let game_count_arg = iter.clone().find(|opt| opt.name == "game_count");
+                        let game_count: usize = match game_count_arg {
+                            Some(game_count) => game_count.value.as_i64().unwrap() as usize,
+                            None => 10,
+                        };
+
+                        let tierlist_result =
+                            tierlist::handle_tierlist_command(lane, &tab, game_count).await;
+
+                        match tierlist_result {
+                            Ok(result) => Ok((result, None)),
                             Err(err) => {
                                 println!("Error: {}", err);
                                 Ok((

@@ -38,7 +38,7 @@ pub async fn handle_build_command(
     lane: Option<&str>,
     tab: &Arc<Tab>,
 ) -> Result<(DiscordOutput, Option<String>), Box<dyn std::error::Error>> {
-    let document = get_u_gg_document_body(champion1, champion2, lane, &tab).await;
+    let document: Result<Html, _> = get_u_gg_document_body(champion1, champion2, lane, &tab).await;
 
     match document {
         Err(err) => {

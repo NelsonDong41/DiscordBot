@@ -10,7 +10,7 @@ The primary goal of this bot is to help me and my friends by offering quick acce
 
 ### Commands
 
-The bot currently supports three main commands:
+The bot currently supports four main commands:
 
 1. **`/build [champion] [optional: vs champion] [optional: lane]`**  
    Retrieves the best build for a specified champion, optionally against another champion. Due to performance issues with the Rust web scraper, the output is initially limited to runes and is updated approximately 20 seconds later to include item information.
@@ -20,6 +20,9 @@ The bot currently supports three main commands:
 
 3. **`/counter [champion] [optional: lane]`**  
    Lists the best champion counters against a specified champion.
+
+4. **`/tierlist [optional: lane] [optional: count]`**  
+   Lists the best champions in a lane.
 
 ### Screenshots
 
@@ -40,6 +43,10 @@ The bot currently supports three main commands:
 #### Example Output for `/counter` Command
 
 ![Counter Command Output](counters.png)
+
+#### Example Output for `/counter` Command
+
+![Tierlist Command Output](tierlist.png)
 
 ## Technical Details
 
